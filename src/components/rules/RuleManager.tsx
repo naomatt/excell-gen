@@ -58,21 +58,37 @@ const RuleManager: React.FC = () => {
     // 新しいルールを作成
     const newRule: ExcelRule = {
       id: crypto.randomUUID(),
-      name: `${rule.name}のコピー`,  // コピーしたことがわかるように名前を変更
+      name: `${rule.name}のコピー`,
       description: rule.description,
-      sheetRules: rule.sheetRules.map(sheetRule => {
+      sheetRules: rule.sheetRules.map((sheetRule, index) => {
         console.log("コピーするシートルール:", JSON.stringify(sheetRule, null, 2));
         
         // マッピングルールをコピー
         const newMappingRules = sheetRule.mappingRules.map(mappingRule => {
           console.log("コピーするマッピングルール:", JSON.stringify(mappingRule, null, 2));
           
+          // sourceTypeの決定
+          let sourceType = mappingRule.sourceType;
+          if (!sourceType) {
+            if (mappingRule.direct_value !== undefined) {
+              sourceType = 'direct';
+            } else if (mappingRule.range) {
+              sourceType = 'range';
+            } else if (mappingRule.cell) {
+              sourceType = 'cell';
+            } else if (mappingRule.formula) {
+              sourceType = 'formula';
+            } else {
+              sourceType = 'direct';
+            }
+          }
+
           // 新しいマッピングルールを作成
           const newMappingRule: MappingRule = {
             id: crypto.randomUUID(),
             name: mappingRule.name,
             targetField: mappingRule.targetField || mappingRule.name,
-            sourceType: mappingRule.sourceType || 'direct',  // sourceTypeがundefinedの場合は'direct'を設定
+            sourceType: sourceType,
             direct_value: mappingRule.direct_value,
             formula: mappingRule.formula,
             defaultValue: mappingRule.defaultValue,
@@ -81,11 +97,46 @@ const RuleManager: React.FC = () => {
 
           // セルまたは範囲の設定
           if (mappingRule.cell) {
-            newMappingRule.cell = JSON.parse(JSON.stringify(mappingRule.cell));  // セル情報を正しくコピー
+            try {
+              const cellData = typeof mappingRule.cell === 'string' 
+                ? JSON.parse(mappingRule.cell) 
+                : mappingRule.cell;
+              
+              // 数値型に変換して保存
+              newMappingRule.cell = {
+                row: Number(cellData.row),
+                column: Number(cellData.column)
+              };
+            } catch (error) {
+              console.error('セルデータのパースに失敗:', error);
+              newMappingRule.cell = undefined;
+            }
           }
+          
           if (mappingRule.range) {
-            newMappingRule.range = JSON.parse(JSON.stringify(mappingRule.range));  // レンジ情報を正しくコピー
+            try {
+              const rangeData = typeof mappingRule.range === 'string'
+                ? JSON.parse(mappingRule.range)
+                : mappingRule.range;
+              
+              // 数値型に変換して保存
+              newMappingRule.range = {
+                startRow: Number(rangeData.startRow),
+                startColumn: Number(rangeData.startColumn),
+                endRow: Number(rangeData.endRow),
+                endColumn: Number(rangeData.endColumn)
+              };
+            } catch (error) {
+              console.error('範囲データのパースに失敗:', error);
+              newMappingRule.range = undefined;
+            }
           }
+
+          // 不要なプロパティを削除
+          delete (newMappingRule as any).hasCell;
+          delete (newMappingRule as any).hasRange;
+          delete (newMappingRule as any).hasFormula;
+          delete (newMappingRule as any).showPreview;
 
           console.log("生成された新しいマッピングルール:", JSON.stringify(newMappingRule, null, 2));
           return newMappingRule;
@@ -95,10 +146,12 @@ const RuleManager: React.FC = () => {
         const newSheetRule: SheetRule = {
           id: crypto.randomUUID(),
           name: sheetRule.name,
-          sheetIndex: sheetRule.sheetIndex,
-          sheetName: sheetRule.sheetName,
+          sheetIndex: index,  // インデックスを明示的に設定
           mappingRules: newMappingRules
         };
+
+        // sheet_nameプロパティを削除（データベースのスキーマに合わせる）
+        delete (newSheetRule as any).sheetName;
 
         console.log("生成された新しいシートルール:", JSON.stringify(newSheetRule, null, 2));
         return newSheetRule;

@@ -1304,9 +1304,11 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
         id: crypto.randomUUID(),
         name: selectedSheet || '',
         sheetIndex: 0,
-        sheetName: selectedSheet || '',
         mappingRules
       };
+
+      // sheet_nameプロパティを削除（データベースのスキーマに合わせる）
+      delete (sheetRule as any).sheetName;
 
       console.log("保存するシートルール:", JSON.stringify(sheetRule, null, 2));
 
@@ -1315,7 +1317,10 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
       if (rule) {
         const updatedRule = {
           ...rule,
-          sheetRules: [sheetRule] // 既存のシートルールを上書き
+          name: editedRule.name,  // ルール名を更新
+          description: editedRule.description,  // 説明を更新
+          sheetRules: [sheetRule], // 既存のシートルールを上書き
+          updatedAt: new Date().toISOString()  // 更新日時を更新
         };
         console.log("更新するルール:", JSON.stringify(updatedRule, null, 2));
         await updateRule(rule.id, updatedRule);
