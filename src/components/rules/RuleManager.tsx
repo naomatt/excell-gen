@@ -1,20 +1,28 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { toast } from 'react-toastify';
-import { getRules, addRule, updateRule, deleteRule } from '../../services/ruleService';
-import { getRuleFileMapping, setRuleFileMapping } from '../../services/fileMappingService';
+import { toast } from 'react-hot-toast';
 import { ExcelRule, MappingRule, CellPosition, CellRange, Condition, SheetRule } from '../../types';
 import RuleEditor from './RuleEditor';
-import { Plus, Edit, Trash2, Copy, Calendar, Info, RefreshCw } from 'lucide-react';
+import { Plus, Edit, Trash2, Copy, Calendar, Info, RefreshCw, GripVertical } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 
 const RuleManager: React.FC = () => {
   const navigate = useNavigate();
-  const { rules, deleteRule: appDeleteRule, addRule: appAddRule, isLoading, error, refreshRules, copyRuleWithFileMapping } = useAppContext();
+  const { rules: contextRules, deleteRule: appDeleteRule, addRule: appAddRule, updateRule: appUpdateRule, isLoading, error, refreshRules, copyRuleWithFileMapping } = useAppContext();
+  const [rules, setRules] = useState<ExcelRule[]>([]);
   const [isCreating, setIsCreating] = useState(false);
   const [editingRule, setEditingRule] = useState<ExcelRule | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  
+  // ドラッグ＆ドロップ関連の状態
+  const [draggedItem, setDraggedItem] = useState<number | null>(null);
+  const [dragOverItem, setDragOverItem] = useState<number | null>(null);
+  
+  // contextからのrulesをローカルのrulesにコピー
+  useEffect(() => {
+    setRules([...contextRules]);
+  }, [contextRules]);
 
   // デバッグ用
   useEffect(() => {
@@ -49,6 +57,88 @@ const RuleManager: React.FC = () => {
 
   const handleRefresh = () => {
     refreshRules();
+  };
+
+  // ドラッグ開始時の処理
+  const handleDragStart = (index: number, e: React.DragEvent<HTMLDivElement>) => {
+    console.log("ドラッグ開始:", index);
+    setDraggedItem(index);
+    
+    // ドラッグ中のゴースト画像の透明度を調整
+    if (e.dataTransfer.setDragImage) {
+      const element = document.getElementById(`rule-card-${index}`);
+      if (element) {
+        // ドラッグイメージを設定
+        const crt = element.cloneNode(true) as HTMLElement;
+        crt.id = 'drag-ghost';
+        crt.style.opacity = '0.9';
+        crt.style.position = 'absolute';
+        crt.style.top = '-1000px';
+        crt.style.transform = 'scale(1.05)';
+        crt.style.boxShadow = '0 10px 25px -5px rgba(0, 0, 0, 0.3)';
+        crt.style.border = '2px solid #3b82f6';
+        crt.style.background = 'white';
+        crt.style.borderRadius = '0.5rem';
+        document.body.appendChild(crt);
+        e.dataTransfer.setDragImage(crt, 100, 35);
+        setTimeout(() => {
+          document.body.removeChild(crt);
+        }, 0);
+      }
+    }
+    
+    // カーソルを変更
+    const cards = document.querySelectorAll('[id^="rule-card-"]');
+    cards.forEach(card => {
+      (card as HTMLElement).style.cursor = 'grabbing';
+    });
+  };
+  
+  // ドラッグ中の処理
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>, index: number) => {
+    e.preventDefault();
+    setDragOverItem(index);
+  };
+  
+  // ドロップ時の処理
+  const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
+    e.preventDefault();
+    
+    // ドラッグ元とドロップ先が有効な場合のみ処理を実行
+    if (draggedItem !== null && dragOverItem !== null && draggedItem !== dragOverItem) {
+      console.log(`ルールの並び替え: ${draggedItem} → ${dragOverItem}`);
+      
+      // ルール配列のコピーを作成
+      const newRules = [...rules];
+      const draggedItemContent = newRules[draggedItem];
+      
+      // ドラッグしたアイテムを削除
+      newRules.splice(draggedItem, 1);
+      // ドロップした位置に挿入
+      newRules.splice(dragOverItem, 0, draggedItemContent);
+      
+      // 状態を更新
+      setRules(newRules);
+      
+      // 順序変更を通知
+      toast.success('ルールの順序を変更しました');
+    }
+    
+    // ドラッグ状態をリセット
+    setDraggedItem(null);
+    setDragOverItem(null);
+  };
+  
+  // ドラッグ終了時の処理
+  const handleDragEnd = () => {
+    setDraggedItem(null);
+    setDragOverItem(null);
+    
+    // カーソルを元に戻す
+    const cards = document.querySelectorAll('[id^="rule-card-"]');
+    cards.forEach(card => {
+      (card as HTMLElement).style.cursor = '';
+    });
   };
 
   // ルールをコピーする関数
@@ -234,9 +324,30 @@ const RuleManager: React.FC = () => {
         </div>
       ) :
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {rules.map(rule => (
-            <div key={rule.id} className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden transition-all hover:shadow-md">
+          {rules.map((rule, index) => (
+            <div 
+              key={rule.id}
+              id={`rule-card-${index}`} 
+              className={`bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden transition-all ${
+                draggedItem === index ? 'opacity-70 cursor-grabbing scale-105 shadow-xl z-50' :
+                dragOverItem === index ? 'border-2 border-dashed border-blue-500 bg-blue-50' : 'hover:shadow-md'
+              }`}
+              draggable
+              onDragStart={(e) => handleDragStart(index, e)}
+              onDragOver={(e) => handleDragOver(e, index)}
+              onDrop={handleDrop}
+              onDragEnd={handleDragEnd}
+            >
               <div className="p-5">
+                {/* ドラッグハンドルを追加 */}
+                <div className="flex items-center justify-between mb-3">
+                  <div 
+                    className="cursor-grab p-1 text-gray-400 hover:text-gray-600 rounded-md hover:bg-gray-200 transition-colors duration-200"
+                    title="ドラッグして順番を変更"
+                  >
+                    <GripVertical size={18} />
+                  </div>
+                </div>
                 <h3 className="text-lg font-semibold text-gray-900 mb-1">{rule.name}</h3>
                 <p className="text-sm text-gray-600 mb-4 line-clamp-2">{rule.description}</p>
                 <div className="flex items-center text-xs text-gray-500 mb-4">
