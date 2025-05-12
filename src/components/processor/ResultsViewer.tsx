@@ -78,138 +78,112 @@ const ResultsViewer: React.FC<ResultsViewerProps> = ({ result, onReset, onBackTo
   };
 
   return (
-    <div className="bg-white rounded-lg shadow overflow-hidden">
-      {/* Header */}
-      <div className="p-6 bg-green-50 border-b border-green-100">
-        <div className="flex items-start">
-          <CheckCircle className="h-8 w-8 text-green-500 mr-3" />
+    <div className="bg-white rounded-lg shadow p-6">
+      <div className="flex justify-between items-center mb-6">
+        <div>
+          <h2 className="text-xl font-bold text-gray-900">処理結果</h2>
+          <p className="text-sm text-gray-600 mt-1">
+            {result.fileName} - {result.ruleName}
+          </p>
+        </div>
+        <div className="flex items-center">
+          <div className="bg-green-50 text-green-700 px-3 py-1 rounded-full text-sm font-medium flex items-center">
+            <CheckCircle className="h-4 w-4 mr-1" />
+            {result.records.length} レコード生成
+          </div>
+        </div>
+      </div>
+
+      <div className="bg-gray-50 border border-gray-200 rounded-lg p-4 mb-6">
+        <div className="grid grid-cols-2 gap-4">
           <div>
-            <h2 className="text-xl font-bold text-gray-900">Processing Complete</h2>
-            <p className="text-gray-600 mt-1">
-              Successfully generated {result.records.length} records from {result.fileName}
-            </p>
-            <div className="flex items-center mt-3 text-sm">
-              <span className="text-gray-600 mr-4">Rule: {result.ruleName}</span>
-              <span className="text-gray-600">Processed: {new Date(result.processedAt).toLocaleString()}</span>
-            </div>
+            <p className="text-sm text-gray-600">ファイル名</p>
+            <p className="font-medium">{result.fileName}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">ルール名</p>
+            <p className="font-medium">{result.ruleName}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">処理日時</p>
+            <p className="font-medium">{new Date(result.processedAt).toLocaleString('ja-JP')}</p>
+          </div>
+          <div>
+            <p className="text-sm text-gray-600">生成レコード数</p>
+            <p className="font-medium">{result.records.length} 件</p>
           </div>
         </div>
       </div>
-      
-      {/* Toolbar */}
-      <div className="bg-gray-50 border-b border-gray-100 p-3 flex justify-between items-center">
-        <div className="flex space-x-2">
-          <button
-            className={`px-3 py-1.5 text-sm font-medium rounded-md ${
-              currentView === 'table' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-            onClick={() => setCurrentView('table')}
-          >
-            Table View
-          </button>
-          <button
-            className={`px-3 py-1.5 text-sm font-medium rounded-md ${
-              currentView === 'json' ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-            }`}
-            onClick={() => setCurrentView('json')}
-          >
-            JSON View
-          </button>
-        </div>
-        
-        <div className="flex space-x-2">
-          {onBackToBatchResults && (
-            <button
-              className="flex items-center px-3 py-1.5 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm"
-              onClick={onBackToBatchResults}
-            >
-              <ArrowLeft size={16} className="mr-1" />
-              一括結果に戻る
-            </button>
-          )}
-          <button
-            className="flex items-center px-3 py-1.5 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm"
-            onClick={handleDownloadCsv}
-          >
-            <Download size={16} className="mr-1" />
-            CSV
-          </button>
-          <button
-            className="flex items-center px-3 py-1.5 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm"
-            onClick={handleDownloadJson}
-          >
-            <Download size={16} className="mr-1" />
-            JSON
-          </button>
-          <button
-            className="flex items-center px-3 py-1.5 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm"
-            onClick={handleDownloadExcel}
-          >
-            <Download size={16} className="mr-1" />
-            Excel
-          </button>
-          <button
-            className="flex items-center px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
-            onClick={onReset}
-          >
-            <RefreshCw size={16} className="mr-1" />
-            Process Another
-          </button>
-        </div>
-      </div>
-      
-      {/* Content */}
-      <div className="p-0">
-        {result.records.length === 0 ? (
-          <div className="text-center p-8">
-            <p className="text-gray-600">No records were generated.</p>
-          </div>
-        ) : currentView === 'table' ? (
-          <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
-            <table className="w-full border-collapse">
-              <thead className="bg-gray-50 sticky top-0">
-                <tr>
-                  <th className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b">#</th>
-                  {fields.map(field => (
-                    <th 
-                      key={field}
-                      className="py-3 px-4 text-left text-xs font-medium text-gray-500 uppercase tracking-wider border-b"
-                    >
-                      {field}
-                    </th>
+
+      <div className="mb-6">
+        <h3 className="text-lg font-medium text-gray-900 mb-3">生成されたレコード</h3>
+        <div className="overflow-x-auto">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                {Object.keys(result.records[0] || {}).map((key) => (
+                  <th
+                    key={key}
+                    className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
+                  >
+                    {key}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {result.records.map((record, index) => (
+                <tr key={index}>
+                  {Object.values(record).map((value, i) => (
+                    <td key={i} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      {value === '' ? '（空欄）' : value}
+                    </td>
                   ))}
                 </tr>
-              </thead>
-              <tbody className="bg-white divide-y divide-gray-200">
-                {result.records.map((record, index) => (
-                  <tr key={index} className="hover:bg-gray-50">
-                    <td className="px-4 py-3 whitespace-nowrap text-sm text-gray-500">{index + 1}</td>
-                    {fields.map(field => (
-                      <td key={field} className="px-4 py-3 whitespace-nowrap text-sm text-gray-800">
-                        {typeof record[field] === 'object' 
-                          ? JSON.stringify(record[field]) 
-                          : String(record[field])}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        ) : (
-          <div className="p-4">
-            <pre className="bg-gray-50 p-4 rounded-md overflow-x-auto max-h-[500px] overflow-y-auto text-sm">
-              {JSON.stringify(result.records, null, 2)}
-            </pre>
-          </div>
-        )}
+              ))}
+            </tbody>
+          </table>
+        </div>
       </div>
-      
-      {/* Footer */}
-      <div className="bg-gray-50 border-t border-gray-100 p-4 text-right">
-        <p className="text-sm text-gray-600">
-          Total Records: <span className="font-medium">{result.records.length}</span>
-        </p>
+
+      <div className="flex space-x-2">
+        {onBackToBatchResults && (
+          <button
+            className="flex items-center px-3 py-1.5 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm"
+            onClick={onBackToBatchResults}
+          >
+            <ArrowLeft size={16} className="mr-1" />
+            一括結果に戻る
+          </button>
+        )}
+        <button
+          className="flex items-center px-3 py-1.5 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm"
+          onClick={handleDownloadCsv}
+        >
+          <Download size={16} className="mr-1" />
+          CSVダウンロード
+        </button>
+        <button
+          className="flex items-center px-3 py-1.5 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm"
+          onClick={handleDownloadJson}
+        >
+          <Download size={16} className="mr-1" />
+          JSONダウンロード
+        </button>
+        <button
+          className="flex items-center px-3 py-1.5 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 text-sm"
+          onClick={handleDownloadExcel}
+        >
+          <Download size={16} className="mr-1" />
+          Excelダウンロード
+        </button>
+        <button
+          className="flex items-center px-3 py-1.5 bg-blue-600 text-white rounded-md hover:bg-blue-700 text-sm"
+          onClick={onReset}
+        >
+          <RefreshCw size={16} className="mr-1" />
+          新規処理
+        </button>
       </div>
     </div>
   );
