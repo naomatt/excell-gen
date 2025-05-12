@@ -1684,6 +1684,15 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
 
   return (
     <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <button
+          onClick={onClose}
+          className="flex items-center text-gray-600 hover:text-gray-900"
+        >
+          <ArrowLeft className="h-5 w-5 mr-2" />
+          ルール管理に戻る
+        </button>
+      </div>
       {renderStepContent()}
     </div>
   );

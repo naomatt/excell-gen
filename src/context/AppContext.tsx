@@ -172,7 +172,7 @@ function loadSavedFile(): File | null {
   }
 }
 
-export const AppContextProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   console.log('AppContextProvider がマウントされました');
   
   const [rules, setRules] = useState<ExcelRule[]>([]);
@@ -440,7 +440,11 @@ export const AppContextProvider: React.FC<{ children: ReactNode }> = ({ children
     refreshRules: loadRules
   };
 
-  return <AppContext.Provider value={contextValue}>{children}</AppContext.Provider>;
+  return (
+    <AppContext.Provider value={contextValue}>
+      {children}
+    </AppContext.Provider>
+  );
 };
 
 export const useAppContext = () => {

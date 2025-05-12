@@ -1,14 +1,20 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { toast } from 'react-toastify';
+import { getRules, addRule, updateRule, deleteRule } from '../../services/ruleService';
+import { getRuleFileMapping, setRuleFileMapping } from '../../services/fileMappingService';
+import { ExcelRule, MappingRule, CellPosition, CellRange, Condition, SheetRule } from '../../types';
+import RuleEditor from './RuleEditor';
 import { Plus, Edit, Trash2, Copy, Calendar, Info, RefreshCw } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
-import RuleEditor from './RuleEditor';
-import { ExcelRule, MappingRule, CellPosition, CellRange, Condition } from '../../types';
 
 const RuleManager: React.FC = () => {
-  const { rules, deleteRule, addRule, isLoading, error, refreshRules, copyRuleWithFileMapping } = useAppContext();
+  const navigate = useNavigate();
+  const { rules, deleteRule: appDeleteRule, addRule: appAddRule, isLoading, error, refreshRules, copyRuleWithFileMapping } = useAppContext();
   const [isCreating, setIsCreating] = useState(false);
   const [editingRule, setEditingRule] = useState<ExcelRule | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   // デバッグ用
   useEffect(() => {
@@ -30,7 +36,7 @@ const RuleManager: React.FC = () => {
 
   const handleDeleteRule = async (id: string) => {
     console.log("Delete rule", id);
-    await deleteRule(id);
+    await appDeleteRule(id);
     setConfirmDelete(null);
   };
 
@@ -38,130 +44,70 @@ const RuleManager: React.FC = () => {
     console.log("Close editor");
     setIsCreating(false);
     setEditingRule(null);
+    navigate('/rules');
   };
 
   const handleRefresh = () => {
     refreshRules();
   };
 
-  // ルールを完全にコピーする関数
+  // ルールをコピーする関数
   const deepCopyRule = (rule: ExcelRule): ExcelRule => {
-    console.log("ルールをコピーします:", rule.id, rule.name);
+    console.log("コピー元のルール:", JSON.stringify(rule, null, 2));
     
-    // コピー元の情報をログ出力
-    const mappingInfo = rule.sheetRules.map(sheetRule => 
-      sheetRule.mappingRules.map(mr => ({
-        name: mr.name,
-        sourceType: mr.sourceType,
-        hasCell: !!mr.cell,
-        hasRange: !!mr.range,
-        hasFormula: !!mr.formula,
-        directValue: mr.directValue,
-        cell: mr.cell,
-        range: mr.range
-      }))
-    );
-    console.log("コピー元ルールの詳細情報:", mappingInfo);
-    
-    const newRule = {
-      ...rule,
+    // 新しいルールを作成
+    const newRule: ExcelRule = {
       id: crypto.randomUUID(),
-      name: `${rule.name}のコピー`,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-      sheetRules: rule.sheetRules.map(sheetRule => ({
-        ...sheetRule,
-        id: crypto.randomUUID(),
-        mappingRules: sheetRule.mappingRules.map(mappingRule => {
-          console.log("コピー元マッピングルール:", mappingRule);
+      name: `${rule.name}のコピー`,  // コピーしたことがわかるように名前を変更
+      description: rule.description,
+      sheetRules: rule.sheetRules.map(sheetRule => {
+        console.log("コピーするシートルール:", JSON.stringify(sheetRule, null, 2));
+        
+        // マッピングルールをコピー
+        const newMappingRules = sheetRule.mappingRules.map(mappingRule => {
+          console.log("コピーするマッピングルール:", JSON.stringify(mappingRule, null, 2));
           
-          // sourceTypeを決定（directValueを優先）
-          let sourceType: 'cell' | 'range' | 'formula' | 'direct' = mappingRule.sourceType || 'cell';
-          if (mappingRule.directValue !== undefined) {
-            sourceType = 'direct';
-          } else if (mappingRule.range) {
-            sourceType = 'range';
-          } else if (mappingRule.cell) {
-            sourceType = 'cell';
-          } else if (mappingRule.formula) {
-            sourceType = 'formula';
-          }
-          
-          // 基本プロパティを持つ新しいオブジェクトを作成
+          // 新しいマッピングルールを作成
           const newMappingRule: MappingRule = {
             id: crypto.randomUUID(),
             name: mappingRule.name,
-            targetField: mappingRule.targetField,
-            sourceType,
-            directValue: mappingRule.directValue
+            targetField: mappingRule.targetField || mappingRule.name,
+            sourceType: mappingRule.sourceType || 'direct',  // sourceTypeがundefinedの場合は'direct'を設定
+            direct_value: mappingRule.direct_value,
+            formula: mappingRule.formula,
+            defaultValue: mappingRule.defaultValue,
+            conditions: mappingRule.conditions ? JSON.parse(JSON.stringify(mappingRule.conditions)) : undefined
           };
 
-          console.log(`マッピングルールの初期化: ${mappingRule.name}`, {
-            sourceType: newMappingRule.sourceType,
-            directValue: newMappingRule.directValue
-          });
+          // セルまたは範囲の設定
+          if (mappingRule.cell) {
+            newMappingRule.cell = JSON.parse(JSON.stringify(mappingRule.cell));  // セル情報を正しくコピー
+          }
+          if (mappingRule.range) {
+            newMappingRule.range = JSON.parse(JSON.stringify(mappingRule.range));  // レンジ情報を正しくコピー
+          }
 
-          // sourceType別に必要なプロパティをコピー
-          if (sourceType === 'cell') {
-            if (mappingRule.cell) {
-              try {
-                // 文字列の場合はJSONとしてパース
-                const cellData = typeof mappingRule.cell === 'string'
-                  ? JSON.parse(mappingRule.cell)
-                  : mappingRule.cell;
-                
-                newMappingRule.cell = {
-                  row: cellData.row,
-                  column: cellData.column
-                };
-                console.log(`セル情報をコピー: ${mappingRule.name} → ${JSON.stringify(newMappingRule.cell)}`);
-              } catch (error) {
-                console.error(`セル情報のパースに失敗: ${mappingRule.name}`, error);
-              }
-            }
-          } else if (sourceType === 'range') {
-            if (mappingRule.range) {
-              try {
-                // 文字列の場合はJSONとしてパース
-                const rangeData = typeof mappingRule.range === 'string'
-                  ? JSON.parse(mappingRule.range)
-                  : mappingRule.range;
-                
-                newMappingRule.range = {
-                  startRow: rangeData.startRow,
-                  startColumn: rangeData.startColumn,
-                  endRow: rangeData.endRow,
-                  endColumn: rangeData.endColumn
-                };
-                console.log(`範囲情報をコピー: ${mappingRule.name} → ${JSON.stringify(newMappingRule.range)}`);
-              } catch (error) {
-                console.error(`範囲情報のパースに失敗: ${mappingRule.name}`, error);
-              }
-            }
-          } else if (sourceType === 'formula' && mappingRule.formula) {
-            newMappingRule.formula = mappingRule.formula;
-            console.log(`数式をコピー: ${mappingRule.name} → ${mappingRule.formula}`);
-          } else if (sourceType === 'direct' && mappingRule.directValue !== undefined) {
-            newMappingRule.directValue = mappingRule.directValue;
-            console.log(`直接入力値をコピー: ${mappingRule.name} → "${mappingRule.directValue}"`);
-          }
-          
-          // 追加プロパティもコピー
-          if (mappingRule.defaultValue !== undefined) {
-            newMappingRule.defaultValue = mappingRule.defaultValue;
-          }
-          
-          if (mappingRule.conditions) {
-            newMappingRule.conditions = JSON.parse(JSON.stringify(mappingRule.conditions)) as Condition[];
-          }
-          
-          console.log(`マッピングルールのコピー完了: ${mappingRule.name}`, newMappingRule);
+          console.log("生成された新しいマッピングルール:", JSON.stringify(newMappingRule, null, 2));
           return newMappingRule;
-        })
-      }))
+        });
+
+        // 新しいシートルールを作成
+        const newSheetRule: SheetRule = {
+          id: crypto.randomUUID(),
+          name: sheetRule.name,
+          sheetIndex: sheetRule.sheetIndex,
+          sheetName: sheetRule.sheetName,
+          mappingRules: newMappingRules
+        };
+
+        console.log("生成された新しいシートルール:", JSON.stringify(newSheetRule, null, 2));
+        return newSheetRule;
+      }),
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString()
     };
 
-    console.log("コピー後のルール:", newRule);
+    console.log("生成された新しいルール:", JSON.stringify(newRule, null, 2));
     return newRule;
   };
 
@@ -274,7 +220,7 @@ const RuleManager: React.FC = () => {
                           range: mr.range,
                           hasFormula: !!mr.formula,
                           formula: mr.formula,
-                          directValue: mr.directValue
+                          direct_value: mr.direct_value
                         }))
                       );
                       console.log("コピー元マッピングルールの詳細:", origMappingDetails);
@@ -294,21 +240,18 @@ const RuleManager: React.FC = () => {
                           range: mr.range,
                           hasFormula: !!mr.formula,
                           formula: mr.formula,
-                          directValue: mr.directValue
+                          direct_value: mr.direct_value
                         }))
                       );
                       console.log("コピー後マッピングルールの詳細:", newMappingDetails);
 
                       // 新しいルールを追加
-                      await addRule(newRule);
+                      await appAddRule(newRule);
                       console.log("新しいルールを追加しました:", newRule.id);
                       
                       // ファイル・シートマッピングもコピー
                       copyRuleWithFileMapping(rule.id, newRule.id);
                       console.log("ファイル・シートマッピングを複製しました", rule.id, "→", newRule.id);
-                      
-                      // 編集モードで開く
-                      handleEditRule(newRule);
                     }}
                   >
                     <Copy size={14} className="mr-1" />

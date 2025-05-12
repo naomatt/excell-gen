@@ -77,7 +77,8 @@ export const createRule = async (rule: ExcelRule): Promise<ExcelRule | null> => 
           id: sheetRule.id,
           rule_id: rule.id,
           name: sheetRule.name,
-          sheet_index: sheetRule.sheetIndex
+          sheet_index: sheetRule.sheetIndex,
+          sheet_name: sheetRule.sheetName
         });
 
       if (sheetError) throw sheetError;
@@ -94,7 +95,7 @@ export const createRule = async (rule: ExcelRule): Promise<ExcelRule | null> => 
           ...(mappingRule.cell && { cell: JSON.stringify(mappingRule.cell) }),
           ...(mappingRule.range && { range: JSON.stringify(mappingRule.range) }),
           ...(mappingRule.formula && { formula: mappingRule.formula }),
-          ...(mappingRule.directValue && { direct_value: mappingRule.directValue }),
+          ...(mappingRule.direct_value && { direct_value: mappingRule.direct_value }),
           ...(mappingRule.defaultValue && { default_value: mappingRule.defaultValue }),
           ...(mappingRule.conditions && { conditions: JSON.stringify(mappingRule.conditions) })
         };
@@ -148,7 +149,8 @@ export const updateRule = async (id: string, rule: ExcelRule): Promise<ExcelRule
           id: sheetRule.id,
           rule_id: id,
           name: sheetRule.name,
-          sheet_index: sheetRule.sheetIndex
+          sheet_index: sheetRule.sheetIndex,
+          sheet_name: sheetRule.sheetName
         });
 
       if (sheetError) throw sheetError;
@@ -165,7 +167,7 @@ export const updateRule = async (id: string, rule: ExcelRule): Promise<ExcelRule
           ...(mappingRule.cell && { cell: JSON.stringify(mappingRule.cell) }),
           ...(mappingRule.range && { range: JSON.stringify(mappingRule.range) }),
           ...(mappingRule.formula && { formula: mappingRule.formula }),
-          ...(mappingRule.directValue && { direct_value: mappingRule.directValue }),
+          ...(mappingRule.direct_value && { direct_value: mappingRule.direct_value }),
           ...(mappingRule.defaultValue && { default_value: mappingRule.defaultValue }),
           ...(mappingRule.conditions && { conditions: JSON.stringify(mappingRule.conditions) })
         };
