@@ -153,7 +153,7 @@ export const processExcelFile = async (
             console.log(`セル値取得: ${mappingRule.name} -> 行:${row}, 列:${column}, 値:${value}`);
           }
           else if (mappingRule.sourceType === 'direct') {
-            value = mappingRule.directValue ?? mappingRule.defaultValue;
+            value = mappingRule.direct_value ?? mappingRule.defaultValue;
             console.log(`直接入力値取得: ${mappingRule.name} -> ${value}`);
           }
           else if (mappingRule.sourceType === 'formula' && mappingRule.formula) {
@@ -277,7 +277,7 @@ export const processExcelFile = async (
             }
           }
           else if (rule.sourceType === 'direct') {
-            value = rule.directValue ?? rule.defaultValue;
+            value = rule.direct_value ?? rule.defaultValue;
             console.log(`直接入力値取得: ${rule.name} -> ${value}`);
           }
           else if (rule.sourceType === 'formula' && rule.formula) {
@@ -325,14 +325,15 @@ export const processExcelFile = async (
           // 各フィールドの値を取得
           for (const [field, values] of Object.entries(rangeData)) {
             const value = values[i];
-            if (value !== undefined && value !== null && value !== '') {
+            // undefined, null以外の値は有効なデータとして扱う（空文字列も含む）
+            if (value !== undefined && value !== null) {
               record[field] = value;
               hasValidData = true;
             }
           }
 
           // 有効なデータがある場合のみレコードを追加
-          if (hasValidData) {
+          if (hasValidData && Object.keys(record).length > 0) {
             console.log(`\nレコード ${i + 1} を追加:`, record);
             records.push(record);
           }
