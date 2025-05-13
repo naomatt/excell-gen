@@ -54,7 +54,7 @@ export interface ExcelRule {
   createdAt: string;
   updatedAt: string;
   sheetRules: SheetRule[];
-  folderId?: string; // ルールが属するフォルダのID（未分類の場合はnull）
+  folderId?: string | null; // ルールが属するフォルダのID（未分類の場合はnull）
 }
 
 // File Types

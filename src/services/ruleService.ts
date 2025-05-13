@@ -48,8 +48,36 @@ export const fetchRules = async (): Promise<ExcelRule[]> => {
 
     if (error) throw error;
     
-    logDebug(`${data?.length || 0}件のルールを取得しました`);
-    return data || [];
+    // データマッピングのログ出力
+    if (data && data.length > 0) {
+      logDebug(`取得したルールデータのサンプル:`, {
+        id: data[0].id,
+        name: data[0].name,
+        folder_id: data[0].folder_id,
+        folderId: (data[0] as any).folderId // TypeScriptでの変換後の型
+      });
+    }
+    
+    // カスタムマッピング処理を追加
+    const mappedRules = data?.map(rule => {
+      // DBのスネークケースからキャメルケースへの明示的な変換
+      const mappedRule: ExcelRule = {
+        id: rule.id,
+        name: rule.name,
+        description: rule.description,
+        createdAt: rule.created_at,
+        updatedAt: rule.updated_at,
+        sheetRules: rule.sheetRules || [],
+        folderId: rule.folder_id // 明示的にfolder_idからfolderIdへマッピング
+      };
+      
+      return mappedRule;
+    }) || [];
+    
+    logDebug(`${mappedRules.length}件のルールを取得しました`);
+    logDebug('マッピング後のルールデータ:', mappedRules.map(r => ({ name: r.name, folderId: r.folderId })));
+    
+    return mappedRules;
   } catch (error) {
     logError('ルールの取得に失敗しました', error);
     return [];
@@ -74,11 +102,33 @@ export const fetchRule = async (id: string): Promise<ExcelRule | null> => {
 
     if (error) throw error;
     
-    logDebug(`ルールを取得しました: ID=${id}`, {
-      name: data?.name,
-      sheetCount: data?.sheetRules?.length || 0
+    // データマッピングの詳細ログ
+    logDebug(`取得したルールデータ:`, {
+      id: data.id,
+      name: data.name,
+      folder_id: data.folder_id,
+      sheetRulesCount: data.sheetRules?.length || 0
     });
-    return data;
+    
+    // 明示的なマッピング処理
+    const mappedRule: ExcelRule = {
+      id: data.id,
+      name: data.name,
+      description: data.description,
+      createdAt: data.created_at,
+      updatedAt: data.updated_at,
+      folderId: data.folder_id, // 明示的にfolder_idからfolderIdへマッピング
+      sheetRules: data.sheetRules || []
+    };
+    
+    logDebug(`マッピング後のルールデータ:`, {
+      id: mappedRule.id,
+      name: mappedRule.name,
+      folderId: mappedRule.folderId,
+      sheetRulesCount: mappedRule.sheetRules.length
+    });
+    
+    return mappedRule;
   } catch (error) {
     logError(`ルール(ID: ${id})の取得に失敗しました`, error);
     return null;
@@ -169,7 +219,8 @@ export const createRule = async (rule: ExcelRule): Promise<ExcelRule | null> => 
 // ルールの更新
 export const updateRule = async (id: string, rule: ExcelRule): Promise<ExcelRule | null> => {
   logDebug(`ルールを更新します: ID=${id}, 名前=${rule.name}`, {
-    sheetCount: rule.sheetRules.length
+    sheetCount: rule.sheetRules.length,
+    folderId: rule.folderId
   });
   
   try {
@@ -190,12 +241,13 @@ export const updateRule = async (id: string, rule: ExcelRule): Promise<ExcelRule
       .update({
         name: rule.name,
         description: rule.description,
-        updated_at: rule.updatedAt
+        updated_at: rule.updatedAt,
+        folder_id: rule.folderId // フォルダIDも更新
       })
       .eq('id', id);
 
     if (updateError) throw updateError;
-    logDebug(`メインルールを更新しました: ID=${id}`);
+    logDebug(`メインルールを更新しました: ID=${id}, フォルダID=${rule.folderId || 'なし'}`);
 
     // シートルールを再作成
     for (const sheetRule of rule.sheetRules) {

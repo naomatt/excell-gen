@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { toast } from 'react-hot-toast';
-import { ExcelRule, MappingRule, CellPosition, CellRange, Condition, SheetRule } from '../../types';
+import { ExcelRule, MappingRule, CellPosition, CellRange, Condition, SheetRule, RuleFolder } from '../../types';
 import RuleEditor from './RuleEditor';
 import FolderList from './FolderList';
 import { Plus, Edit, Trash2, Copy, Calendar, Info, RefreshCw, GripVertical, Folder } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
+import { getFolders } from '../../services/folderService';
 
 const RuleManager: React.FC = () => {
   const navigate = useNavigate();
@@ -24,11 +25,46 @@ const RuleManager: React.FC = () => {
   // フォルダ関連の状態
   const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
+  const [folders, setFolders] = useState<RuleFolder[]>([]);
   
   // contextからのrulesをローカルのrulesにコピー
   useEffect(() => {
     setRules([...contextRules]);
   }, [contextRules]);
+
+  // 選択フォルダIDをローカルストレージから復元
+  useEffect(() => {
+    const savedFolderId = localStorage.getItem('selectedFolderId');
+    if (savedFolderId) {
+      console.log(`ローカルストレージから選択フォルダIDを復元: ${savedFolderId}`);
+      setSelectedFolderId(savedFolderId);
+    }
+  }, []);
+
+  // 選択フォルダIDをローカルストレージに保存
+  useEffect(() => {
+    if (selectedFolderId !== null) {
+      localStorage.setItem('selectedFolderId', selectedFolderId);
+      console.log(`選択フォルダIDをローカルストレージに保存: ${selectedFolderId}`);
+    } else {
+      localStorage.removeItem('selectedFolderId');
+      console.log('選択フォルダIDをローカルストレージから削除（未分類を選択）');
+    }
+  }, [selectedFolderId]);
+
+  // フォルダの読み込み
+  useEffect(() => {
+    const loadFolders = async () => {
+      try {
+        const folderList = await getFolders();
+        setFolders(folderList);
+      } catch (error) {
+        console.error('フォルダの読み込みに失敗しました:', error);
+      }
+    };
+    
+    loadFolders();
+  }, []);
 
   // デバッグ用
   useEffect(() => {
@@ -39,12 +75,19 @@ const RuleManager: React.FC = () => {
 
   // フォルダで絞り込まれたルール一覧
   const filteredRules = React.useMemo(() => {
+    console.log("フィルタリングを実行: selectedFolderId=", selectedFolderId);
+    console.log("フィルタリング対象のルール:", rules.map(r => ({ name: r.name, folderId: r.folderId })));
+    
     if (selectedFolderId === null) {
       // 未分類（folderIdがないか、nullのルール）
-      return rules.filter(rule => !rule.folderId);
+      const filtered = rules.filter(rule => !rule.folderId);
+      console.log("未分類フィルタリング結果:", filtered.map(r => r.name));
+      return filtered;
     } else {
       // 選択されたフォルダに属するルール
-      return rules.filter(rule => rule.folderId === selectedFolderId);
+      const filtered = rules.filter(rule => rule.folderId === selectedFolderId);
+      console.log(`フォルダ(${selectedFolderId})フィルタリング結果:`, filtered.map(r => r.name));
+      return filtered;
     }
   }, [rules, selectedFolderId]);
 
@@ -78,32 +121,87 @@ const RuleManager: React.FC = () => {
   };
 
   // ルールのフォルダを変更
-  const handleChangeRuleFolder = async (ruleId: string, folderId: string | null) => {
+  const handleChangeRuleFolder = async (ruleId: string, folderId: string | null): Promise<boolean> => {
     console.log(`ルールのフォルダを変更: ruleId=${ruleId}, folderId=${folderId}`);
     
     // 変更対象のルールを取得
     const rule = rules.find(r => r.id === ruleId);
-    if (!rule) return;
+    if (!rule) {
+      console.error('ルールが見つかりません:', ruleId);
+      return false;
+    }
     
-    // folderIdを更新
+    // 現在のフォルダIDを確認
+    console.log(`現在のフォルダID: ${rule.folderId || 'なし(未分類)'}`);
+    
+    // フォルダIDが同じなら何もしない
+    if (rule.folderId === folderId) {
+      console.log('フォルダIDが変更されていないため、処理をスキップします');
+      return true;
+    }
+    
+    // folderIdのみを更新し、他のフィールドはそのまま保持
     const updatedRule: ExcelRule = {
       ...rule,
-      folderId: folderId || undefined
+      folderId: folderId
     };
     
-    // ルールを更新
-    const success = await appUpdateRule(ruleId, updatedRule);
-    if (success) {
-      toast.success('ルールのフォルダを変更しました');
-    } else {
+    console.log('更新するルール:', {
+      id: updatedRule.id,
+      name: updatedRule.name,
+      oldFolderId: rule.folderId,
+      newFolderId: updatedRule.folderId
+    });
+    
+    // ルールを更新（フォルダIDのみを変更）
+    try {
+      console.log('AppContextのupdateRuleを呼び出します');
+      const success = await appUpdateRule(ruleId, updatedRule);
+      
+      // 更新後のルールを取得して確認
+      const updatedRuleCheck = rules.find(r => r.id === ruleId);
+      console.log('更新後のルール:', updatedRuleCheck ? {
+        id: updatedRuleCheck.id,
+        name: updatedRuleCheck.name,
+        folderId: updatedRuleCheck.folderId
+      } : '不明');
+      
+      if (success) {
+        toast.success('ルールのフォルダを変更しました');
+        
+        // 明示的にルールの状態を更新（AppContextの処理を待たずに即時反映）
+        const newRules = rules.map(r => {
+          if (r.id === ruleId) {
+            return { ...r, folderId };
+          }
+          return r;
+        });
+        setRules(newRules);
+        
+        // 移動先のフォルダを自動的に選択（移動先が未分類ならnull、それ以外ならフォルダID）
+        setSelectedFolderId(folderId);
+        console.log(`選択フォルダを変更: ${folderId || '未分類'}`);
+        
+        return true;
+      } else {
+        toast.error('ルールのフォルダ変更に失敗しました');
+        return false;
+      }
+    } catch (error) {
+      console.error('ルールのフォルダ変更中にエラーが発生しました:', error);
       toast.error('ルールのフォルダ変更に失敗しました');
+      return false;
     }
   };
 
   // ドラッグ開始時の処理
-  const handleDragStart = (index: number, e: React.DragEvent<HTMLDivElement>) => {
-    console.log("ドラッグ開始:", index);
+  const handleDragStart = (index: number, rule: ExcelRule, e: React.DragEvent<HTMLDivElement>) => {
+    console.log("ドラッグ開始:", index, rule.id);
     setDraggedItem(index);
+    
+    // ルールIDをドラッグデータに設定
+    e.dataTransfer.setData('application/rule', rule.id);
+    e.dataTransfer.effectAllowed = 'move';
     
     // ドラッグ中のゴースト画像の透明度を調整
     if (e.dataTransfer.setDragImage) {
@@ -311,7 +409,8 @@ const RuleManager: React.FC = () => {
         <div className="p-4">
           <FolderList 
             selectedFolderId={selectedFolderId} 
-            onSelectFolder={setSelectedFolderId} 
+            onSelectFolder={setSelectedFolderId}
+            onMoveRuleToFolder={handleChangeRuleFolder}
           />
         </div>
       </div>
@@ -329,7 +428,7 @@ const RuleManager: React.FC = () => {
             <h1 className="text-2xl font-bold text-gray-900">
               {selectedFolderId === null 
                 ? '未分類のルール' 
-                : 'フォルダ内のルール'}
+                : `${folders.find(f => f.id === selectedFolderId)?.name || 'フォルダ'}のルール`}
             </h1>
           </div>
           <div className="flex space-x-2">
@@ -405,7 +504,7 @@ const RuleManager: React.FC = () => {
                   dragOverItem === index ? 'border-2 border-dashed border-blue-500 bg-blue-50' : 'hover:shadow-md'
                 }`}
                 draggable
-                onDragStart={(e) => handleDragStart(index, e)}
+                onDragStart={(e) => handleDragStart(index, rule, e)}
                 onDragOver={(e) => handleDragOver(e, index)}
                 onDrop={handleDrop}
                 onDragEnd={handleDragEnd}
@@ -415,10 +514,18 @@ const RuleManager: React.FC = () => {
                   <div className="flex items-center justify-between mb-3">
                     <div 
                       className="cursor-grab p-1 text-gray-400 hover:text-gray-600 rounded-md hover:bg-gray-200 transition-colors duration-200"
-                      title="ドラッグして順番を変更"
+                      title="ドラッグして順番を変更やフォルダに移動"
                     >
                       <GripVertical size={18} />
                     </div>
+                    {rule.folderId && (
+                      <div className="flex items-center">
+                        <Folder size={14} className="mr-1" style={{ color: folders.find(f => f.id === rule.folderId)?.color || '#3b82f6' }} />
+                        <span className="text-xs text-gray-500">
+                          {folders.find(f => f.id === rule.folderId)?.name || 'フォルダ'}
+                        </span>
+                      </div>
+                    )}
                   </div>
                   <h3 className="text-lg font-semibold text-gray-900 mb-1">{rule.name}</h3>
                   <p className="text-sm text-gray-600 mb-4 line-clamp-2">{rule.description}</p>

@@ -3,6 +3,7 @@ CREATE TABLE excel_rules (
   id UUID PRIMARY KEY,
   name TEXT NOT NULL,
   description TEXT,
+  folder_id UUID,
   created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );

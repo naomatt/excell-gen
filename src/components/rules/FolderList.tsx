@@ -8,9 +8,14 @@ import { toast } from 'react-hot-toast';
 interface FolderListProps {
   selectedFolderId: string | null;
   onSelectFolder: (folderId: string | null) => void;
+  onMoveRuleToFolder?: (ruleId: string, folderId: string | null) => Promise<boolean>;
 }
 
-const FolderList: React.FC<FolderListProps> = ({ selectedFolderId, onSelectFolder }) => {
+const FolderList: React.FC<FolderListProps> = ({ 
+  selectedFolderId, 
+  onSelectFolder,
+  onMoveRuleToFolder 
+}) => {
   const [folders, setFolders] = useState<RuleFolder[]>([]);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
   const [isCreating, setIsCreating] = useState(false);
@@ -20,6 +25,7 @@ const FolderList: React.FC<FolderListProps> = ({ selectedFolderId, onSelectFolde
   const [newFolderColor, setNewFolderColor] = useState('#3b82f6');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
   
   const { rules, isOnline } = useAppContext();
   
@@ -165,6 +171,121 @@ const FolderList: React.FC<FolderListProps> = ({ selectedFolderId, onSelectFolde
     loadFolders();
   };
   
+  // ドラッグ中のルールをフォルダに移動する処理
+  const handleDragOver = (e: React.DragEvent<HTMLDivElement>, folderId: string | null) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    try {
+      // 常にドロップを受け入れるように変更
+      const types = e.dataTransfer.types;
+      console.log('ドラッグタイプ:', types);
+      
+      // application/ruleデータ型をチェック
+      const hasRuleData = Array.from(types).some(type => 
+        type === 'application/rule' || type === 'text/plain'
+      );
+      
+      if (hasRuleData) {
+        console.log(`フォルダ ${folderId || '未分類'} にドラッグオーバー`);
+        setDragOverFolderId(folderId);
+      }
+    } catch (error) {
+      console.error('ドラッグオーバー処理でエラー:', error);
+    }
+  };
+  
+  // ドロップ時の処理
+  const handleDrop = async (e: React.DragEvent<HTMLDivElement>, folderId: string | null) => {
+    e.preventDefault();
+    e.stopPropagation();
+    
+    try {
+      // ドラッグデータをすべてログ
+      console.log('ドロップイベント:', e.dataTransfer);
+      console.log('dataTransfer types:', Array.from(e.dataTransfer.types));
+      
+      // 複数の方法でルールIDの取得を試みる
+      let ruleId: string | null = null;
+      
+      // すべてのタイプを試行
+      for (const type of Array.from(e.dataTransfer.types)) {
+        try {
+          const data = e.dataTransfer.getData(type);
+          console.log(`${type} データ:`, data);
+          
+          // UUIDパターンかどうかをチェック
+          if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(data)) {
+            ruleId = data;
+            console.log(`${type} からUUIDを取得:`, ruleId);
+            break; // 有効なUUIDが見つかれば終了
+          }
+        } catch (error) {
+          console.warn(`${type} データの取得に失敗:`, error);
+        }
+      }
+      
+      // 古い方法もバックアップとして残す
+      if (!ruleId) {
+        try {
+          ruleId = e.dataTransfer.getData('application/rule');
+          console.log('application/rule からのruleId:', ruleId);
+        } catch (error) {
+          console.warn('application/rule データの取得に失敗:', error);
+        }
+      }
+      
+      // text/plainでも試行
+      if (!ruleId) {
+        try {
+          const textData = e.dataTransfer.getData('text/plain');
+          console.log('text/plain データ:', textData);
+          // UUIDパターンかどうかをチェック
+          if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(textData)) {
+            ruleId = textData;
+            console.log('text/plain からUUIDを取得:', ruleId);
+          }
+        } catch (error) {
+          console.warn('text/plain データの取得に失敗:', error);
+        }
+      }
+      
+      console.log(`ドロップ処理: ruleId=${ruleId}, folderId=${folderId || 'null'}`);
+      
+      if (ruleId && onMoveRuleToFolder) {
+        console.log(`ルールをフォルダに移動: ruleId=${ruleId}, folderId=${folderId || 'null'}`);
+        
+        const success = await onMoveRuleToFolder(ruleId, folderId);
+        
+        if (success) {
+          // ドロップしたフォルダを自動的に選択
+          onSelectFolder(folderId);
+          console.log(`フォルダ選択を変更: ${folderId || '未分類'}`);
+          
+          if (folderId) {
+            toast.success(`ルールを「${folders.find(f => f.id === folderId)?.name || 'フォルダ'}」に移動しました`);
+          } else {
+            toast.success('ルールを「未分類」に移動しました');
+          }
+        } else {
+          toast.error('ルールの移動に失敗しました');
+        }
+      } else {
+        console.warn('ルールIDが取得できないか、移動ハンドラがありません');
+      }
+    } catch (error) {
+      console.error('ドロップ処理でエラーが発生:', error);
+    } finally {
+      // ドラッグ状態をリセット
+      setDragOverFolderId(null);
+    }
+  };
+  
+  // ドラッグ終了時の処理
+  const handleDragLeave = () => {
+    setDragOverFolderId(null);
+  };
+  
   return (
     <div className="space-y-2">
       <div className="flex justify-between items-center mb-2">
@@ -203,8 +324,11 @@ const FolderList: React.FC<FolderListProps> = ({ selectedFolderId, onSelectFolde
       <div 
         className={`flex items-center py-1.5 px-2 rounded-md cursor-pointer ${
           selectedFolderId === null ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-100'
-        }`}
+        } ${dragOverFolderId === null ? 'border-2 border-dashed border-blue-400 bg-blue-50' : ''}`}
         onClick={() => onSelectFolder(null)}
+        onDragOver={(e) => handleDragOver(e, null)}
+        onDragLeave={handleDragLeave}
+        onDrop={(e) => handleDrop(e, null)}
       >
         <Folder size={16} className="mr-2 text-gray-400" />
         <span className="flex-1">未分類</span>
@@ -280,8 +404,11 @@ const FolderList: React.FC<FolderListProps> = ({ selectedFolderId, onSelectFolde
                   <div 
                     className={`flex-1 flex items-center py-1 px-2 rounded-md cursor-pointer ${
                       selectedFolderId === folder.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-100'
-                    }`}
+                    } ${dragOverFolderId === folder.id ? 'border-2 border-dashed border-blue-400 bg-blue-50' : ''}`}
                     onClick={() => onSelectFolder(folder.id)}
+                    onDragOver={(e) => handleDragOver(e, folder.id)}
+                    onDragLeave={handleDragLeave}
+                    onDrop={(e) => handleDrop(e, folder.id)}
                   >
                     <Folder size={16} className="mr-2" style={{ color: folder.color }} />
                     <div className="flex-1">

@@ -8,19 +8,31 @@ import React, {
 import { ExcelRule, ProcessedFile, ProcessingResult } from '../types';
 import { fetchRules, createRule, updateRule as updateSupabaseRule, deleteRule as deleteSupabaseRule } from '../services/ruleService';
 import { toast } from 'react-hot-toast';
+import { supabase } from '../lib/supabaseClient';
+
+// テーブル名の定義
+const EXCEL_RULES_TABLE = 'excel_rules';
+const SHEET_RULES_TABLE = 'excel_sheet_rules';
+const MAPPING_RULES_TABLE = 'excel_mapping_rules';
 
 // デバッグログユーティリティ
-const logDebug = (message: string, data?: any) => {
-  console.log(`[AppContext] ${message}`, data || '');
+const logDebug = (message: string, ...data: any[]) => {
+  const dataString = data.length > 0 ? data.map(d => JSON.stringify(d)).join(' ') : '';
+  console.log(`[AppContext] ${message}`, dataString || '');
 };
 
-const logError = (message: string, error: any) => {
-  console.error(`[AppContext] ${message}`, error);
-  if (error) {
-    if (error.code) console.error(`Error code: ${error.code}`);
-    if (error.message) console.error(`Error message: ${error.message}`);
-    if (error.details) console.error(`Error details: ${error.details}`);
-  }
+const logError = (message: string, ...errors: any[]) => {
+  console.error(`[AppContext] ${message}`);
+  
+  // エラー詳細を出力
+  errors.forEach(error => {
+    if (error) {
+      console.error('Error details:', error);
+      if (error.code) console.error(`Error code: ${error.code}`);
+      if (error.message) console.error(`Error message: ${error.message}`);
+      if (error.details) console.error(`Error details: ${error.details}`);
+    }
+  });
 };
 
 // ファイル関連情報を格納するインターフェース
@@ -522,11 +534,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   
   // ルールの更新（Supabase + ローカルステート）
   const updateRule = async (id: string, updatedRule: ExcelRule): Promise<boolean> => {
-    logDebug('ルールを更新します:', id, updatedRule.name);
+    logDebug(`ルールを更新します: ${id}, ${updatedRule.name}`);
     setIsLoading(true);
     setError(null);
     
     try {
+      // フォルダIDのみの更新かどうかをチェック
+      const existingRule = rules.find(r => r.id === id);
+      const isFolderOnlyUpdate = existingRule && 
+        Object.keys(updatedRule).length === Object.keys(existingRule).length &&
+        updatedRule.name === existingRule.name &&
+        updatedRule.description === existingRule.description &&
+        JSON.stringify(updatedRule.sheetRules) === JSON.stringify(existingRule.sheetRules) &&
+        updatedRule.folderId !== existingRule.folderId;
+      
+      logDebug(`フォルダのみの更新: ${isFolderOnlyUpdate}, 新しいフォルダID: ${updatedRule.folderId}`);
+      
       if (!navigator.onLine) {
         // オフライン時はローカルのみに保存し、同期待ちリストに追加
         setRules(prev => prev.map(r => r.id === id ? updatedRule : r));
@@ -539,17 +562,64 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return true;
       }
       
-      const result = await updateSupabaseRule(id, updatedRule);
-      if (result) {
-        setRules(prev => prev.map(r => r.id === id ? result : r));
-        logDebug('ルールをSupabaseで更新しました:', id);
-        setIsLoading(false);
-        return true;
+      let result;
+      
+      if (isFolderOnlyUpdate) {
+        // フォルダIDのみの更新の場合は、excel_rulesテーブルのfolder_idフィールドのみを更新
+        logDebug(`フォルダIDのみを更新します: ${updatedRule.folderId}`);
+        
+        try {
+          // 更新データの準備 - folder_idとupdated_atを設定
+          const updateData = {
+            folder_id: updatedRule.folderId,
+            updated_at: new Date().toISOString()
+          };
+          
+          logDebug(`更新データ: ${JSON.stringify(updateData)}`);
+          
+          // Supabaseへの更新リクエスト
+          const { data, error } = await supabase
+            .from(EXCEL_RULES_TABLE)
+            .update(updateData)
+            .eq('id', id)
+            .select();
+          
+          if (error) {
+            logError(`フォルダID更新エラー: ${error.message}`, error);
+            throw error;
+          }
+          
+          logDebug(`Supabaseからの応答データ: ${JSON.stringify(data)}`);
+          
+          if (!data || data.length === 0) {
+            logError('フォルダID更新後のデータが返されませんでした');
+            throw new Error('データが返されませんでした');
+          }
+          
+          // 完全なデータを取得するため、既存のルールをベースに更新
+          result = {
+            ...existingRule!,
+            folderId: updateData.folder_id,
+            updatedAt: updateData.updated_at
+          };
+          
+          logDebug(`フォルダID更新が完了しました: ${result.id}, 新しいフォルダID: ${result.folderId}`);
+        } catch (updateError) {
+          logError(`フォルダ更新中にエラーが発生しました`, updateError);
+          throw updateError;
+        }
       } else {
-        throw new Error('ルールの更新に失敗しました');
+        // 通常の更新（シートルールやマッピングルールなどの再作成を含む）
+        result = await updateSupabaseRule(id, updatedRule);
+        if (!result) throw new Error('ルールの更新に失敗しました');
+        logDebug(`ルールをSupabaseで更新しました: ${id}`);
       }
+      
+      setRules(prev => prev.map(r => r.id === id ? result : r));
+      setIsLoading(false);
+      return true;
     } catch (error) {
-      logError('Supabaseでのルール更新に失敗しました:', error);
+      logError(`Supabaseでのルール更新に失敗しました: ${error instanceof Error ? error.message : 'Unknown error'}`);
       setError('ルールの更新に失敗しました');
       
       // ローカルステートでは更新（バックアップとして）
