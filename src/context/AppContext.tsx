@@ -7,6 +7,21 @@ import React, {
 } from 'react';
 import { ExcelRule, ProcessedFile, ProcessingResult } from '../types';
 import { fetchRules, createRule, updateRule as updateSupabaseRule, deleteRule as deleteSupabaseRule } from '../services/ruleService';
+import { toast } from 'react-hot-toast';
+
+// デバッグログユーティリティ
+const logDebug = (message: string, data?: any) => {
+  console.log(`[AppContext] ${message}`, data || '');
+};
+
+const logError = (message: string, error: any) => {
+  console.error(`[AppContext] ${message}`, error);
+  if (error) {
+    if (error.code) console.error(`Error code: ${error.code}`);
+    if (error.message) console.error(`Error message: ${error.message}`);
+    if (error.details) console.error(`Error details: ${error.details}`);
+  }
+};
 
 // ファイル関連情報を格納するインターフェース
 interface SavedFileInfo {
@@ -26,9 +41,9 @@ interface RuleFileMapping {
 
 interface AppContextType {
   rules: ExcelRule[];
-  addRule: (rule: ExcelRule) => void;
-  updateRule: (id: string, updatedRule: ExcelRule) => void;
-  deleteRule: (id: string) => void;
+  addRule: (rule: ExcelRule) => Promise<boolean>;
+  updateRule: (id: string, updatedRule: ExcelRule) => Promise<boolean>;
+  deleteRule: (id: string) => Promise<boolean>;
   recentFiles: ProcessedFile[];
   addProcessedFile: (file: ProcessedFile) => void;
   processingResults: ProcessingResult[];
@@ -49,39 +64,11 @@ interface AppContextType {
   isLoading: boolean;
   error: string | null;
   refreshRules: () => Promise<void>;
+  syncToServer: () => Promise<void>; // データを手動でサーバーと同期する
+  isOnline: boolean; // オンライン状態
 }
 
-const AppContext = createContext<AppContextType | undefined>(undefined);
-
-function loadFromStorage<T>(key: string, defaultValue: T): T {
-  if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
-    return defaultValue;
-  }
-  
-  try {
-    const stored = localStorage.getItem(key);
-    console.log(`読み込み: ${key}`, stored ? '存在します' : 'データがありません');
-    return stored ? JSON.parse(stored) as T : defaultValue;
-  } catch (error) {
-    console.error(`Error loading from localStorage (${key}):`, error);
-    return defaultValue;
-  }
-}
-
-function saveToStorage<T>(key: string, value: T): void {
-  if (typeof window === 'undefined' || typeof localStorage === 'undefined') {
-    return;
-  }
-  
-  try {
-    console.log(`保存: ${key}`, value);
-    localStorage.setItem(key, JSON.stringify(value));
-  } catch (error) {
-    console.error(`Error saving to localStorage (${key}):`, error);
-  }
-}
-
-// ArrayBufferをBase64に変換する関数
+// Base64変換ユーティリティ
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   let binary = '';
   const bytes = new Uint8Array(buffer);
@@ -92,7 +79,6 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   return window.btoa(binary);
 }
 
-// Base64をArrayBufferに変換する関数
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
   const binary_string = window.atob(base64);
   const len = binary_string.length;
@@ -101,6 +87,27 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
     bytes[i] = binary_string.charCodeAt(i);
   }
   return bytes.buffer;
+}
+
+// ローカルストレージのユーティリティ関数
+function saveToStorage<T>(key: string, data: T): void {
+  try {
+    localStorage.setItem(key, JSON.stringify(data));
+    logDebug(`データをローカルストレージに保存しました: ${key}`);
+  } catch (error) {
+    logError(`ローカルストレージへの保存に失敗しました: ${key}`, error);
+  }
+}
+
+function loadFromStorage<T>(key: string, defaultValue: T): T {
+  try {
+    const jsonData = localStorage.getItem(key);
+    if (!jsonData) return defaultValue;
+    return JSON.parse(jsonData) as T;
+  } catch (error) {
+    logError(`ローカルストレージからの読み込みに失敗しました: ${key}`, error);
+    return defaultValue;
+  }
 }
 
 // ファイル情報を保存
@@ -130,14 +137,14 @@ function saveFileInfo(file: File): void {
         type: file.type
       }));
       
-      console.log('ファイル情報を保存しました:', file.name);
+      logDebug('ファイル情報を保存しました', file.name);
     } catch (error) {
-      console.error('ファイル情報の保存に失敗しました:', error);
+      logError('ファイル情報の保存に失敗しました:', error);
     }
   };
   
   fileReader.onerror = () => {
-    console.error('ファイルの読み込みに失敗しました');
+    logError('ファイルの読み込みに失敗しました', fileReader.error);
   };
   
   fileReader.readAsArrayBuffer(file);
@@ -151,7 +158,7 @@ function loadSavedFile(): File | null {
     const fileDataBase64 = localStorage.getItem('ruleEditorFileData');
     
     if (!fileName || !fileInfoStr || !fileDataBase64) {
-      console.log('保存されたファイル情報がありません');
+      logDebug('保存されたファイル情報がありません');
       return null;
     }
     
@@ -164,16 +171,27 @@ function loadSavedFile(): File | null {
       lastModified: fileInfo.lastModified
     });
     
-    console.log('保存されたファイルを読み込みました:', file.name);
+    logDebug('保存されたファイルを読み込みました', file.name);
     return file;
   } catch (error) {
-    console.error('ファイルの読み込みに失敗しました:', error);
+    logError('ファイルの読み込みに失敗しました', error);
     return null;
   }
 }
 
+// コンテキストの作成
+const AppContext = createContext<AppContextType | undefined>(undefined);
+
+export const useAppContext = () => {
+  const context = useContext(AppContext);
+  if (!context) {
+    throw new Error('useAppContext must be used within an AppProvider');
+  }
+  return context;
+};
+
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  console.log('AppContextProvider がマウントされました');
+  logDebug('AppContextProviderがマウントされました');
   
   const [rules, setRules] = useState<ExcelRule[]>([]);
   const [recentFiles, setRecentFiles] = useState<ProcessedFile[]>([]);
@@ -184,13 +202,85 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [lastSelectedSheet, setLastSelectedSheet] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [isOnline, setIsOnline] = useState<boolean>(navigator.onLine);
+  
+  // 同期が必要なデータを追跡
+  const [pendingRules, setPendingRules] = useState<{
+    add: ExcelRule[],
+    update: { id: string, rule: ExcelRule }[],
+    delete: string[]
+  }>({
+    add: [],
+    update: [],
+    delete: []
+  });
   
   // ルールとファイル・シートの関連付けを管理する状態
   const [ruleMappings, setRuleMappings] = useState<RuleFileMapping[]>([]);
   
+  // オンライン状態を監視
+  useEffect(() => {
+    const handleOnline = () => {
+      logDebug('ネットワーク接続が復旧しました');
+      setIsOnline(true);
+      // 接続復旧時に保留中のデータを同期
+      syncToServer();
+    };
+    
+    const handleOffline = () => {
+      logDebug('ネットワーク接続が切断されました');
+      setIsOnline(false);
+    };
+    
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+  
+  // 初期化時にローカルストレージから状態を復元
+  useEffect(() => {
+    logDebug('ローカルストレージからデータを読み込みます');
+    
+    setRecentFiles(loadFromStorage<ProcessedFile[]>('recentFiles', []));
+    setProcessingResults(loadFromStorage<ProcessingResult[]>('processingResults', []));
+    setRuleMappings(loadFromStorage<RuleFileMapping[]>('ruleMappings', []));
+    
+    // 最後に選択したシートを復元
+    const savedSheet = localStorage.getItem('lastSelectedSheet');
+    if (savedSheet) {
+      setLastSelectedSheet(savedSheet);
+      logDebug('最後に選択したシートを復元しました', savedSheet);
+    }
+    
+    // 保存されたファイルを復元
+    const savedFile = loadSavedFile();
+    if (savedFile) {
+      setRuleEditorFileState(savedFile);
+      logDebug('保存されたファイルを復元しました', savedFile.name);
+    }
+    
+    // 保留中の操作を復元
+    setPendingRules(loadFromStorage<{
+      add: ExcelRule[],
+      update: { id: string, rule: ExcelRule }[],
+      delete: string[]
+    }>('pendingRules', {
+      add: [],
+      update: [],
+      delete: []
+    }));
+    
+    // ルールをロード
+    loadRules();
+  }, []);
+  
   // ルールとファイル・シートの関連付けを設定
   const setRuleFileMapping = (ruleId: string, fileName: string, sheetName: string) => {
-    console.log(`ルールマッピング設定: ruleId=${ruleId}, fileName=${fileName}, sheetName=${sheetName}`);
+    logDebug(`ルールマッピング設定: ruleId=${ruleId}, fileName=${fileName}, sheetName=${sheetName}`);
     const newMappings = [...ruleMappings.filter(m => m.ruleId !== ruleId)];
     newMappings.push({ ruleId, fileName, sheetName });
     setRuleMappings(newMappings);
@@ -199,13 +289,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   
   // ルールのコピー時にファイル・シート情報も複製する
   const copyRuleWithFileMapping = (sourceRuleId: string, targetRuleId: string) => {
-    console.log(`ルールマッピングをコピー: sourceRuleId=${sourceRuleId}, targetRuleId=${targetRuleId}`);
+    logDebug(`ルールマッピングをコピー: sourceRuleId=${sourceRuleId}, targetRuleId=${targetRuleId}`);
     const sourceMapping = ruleMappings.find(m => m.ruleId === sourceRuleId);
     if (sourceMapping) {
-      console.log(`マッピング情報を複製: fileName=${sourceMapping.fileName}, sheetName=${sourceMapping.sheetName}`);
+      logDebug(`マッピング情報を複製: fileName=${sourceMapping.fileName}, sheetName=${sourceMapping.sheetName}`);
       setRuleFileMapping(targetRuleId, sourceMapping.fileName, sourceMapping.sheetName);
     } else {
-      console.log(`マッピング情報が見つかりませんでした: sourceRuleId=${sourceRuleId}`);
+      logDebug(`マッピング情報が見つかりませんでした: sourceRuleId=${sourceRuleId}`);
     }
   };
   
@@ -227,7 +317,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const handleSetLastSelectedSheet = (sheetName: string) => {
     setLastSelectedSheet(sheetName);
     localStorage.setItem('lastSelectedSheet', sheetName);
-    console.log('最後に選択したシートを保存しました:', sheetName);
+    logDebug('最後に選択したシートを保存しました', sheetName);
     
     // 現在選択中のルールがあれば関連付けを更新
     if (selectedRuleId && ruleEditorFile) {
@@ -241,69 +331,139 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.removeItem('ruleEditorFileName');
     localStorage.removeItem('ruleEditorFileData');
     localStorage.removeItem('ruleEditorFileInfo');
+    logDebug('ファイル情報をクリアしました');
   };
   
-  // Supabaseからルール一覧を取得
+  // Supabaseからルールを読み込む
   const loadRules = async () => {
+    logDebug('Supabaseからルールを読み込みます');
     setIsLoading(true);
     setError(null);
+    
     try {
-      const rulesData = await fetchRules();
-      console.log('Supabaseからルールを取得しました:', rulesData.length);
-      setRules(rulesData);
-    } catch (err) {
-      console.error('ルールの取得に失敗しました:', err);
-      setError('ルールの取得に失敗しました');
+      const rulesFromDB = await fetchRules();
+      logDebug(`${rulesFromDB.length}件のルールを読み込みました`);
       
-      // バックアップとしてローカルストレージから読み込み
-      const savedRules = loadFromStorage<ExcelRule[]>('excelRules', []);
-      console.log('バックアップとしてローカルストレージから読み込みました:', savedRules.length);
-      setRules(savedRules);
+      if (rulesFromDB.length > 0) {
+        setRules(rulesFromDB);
+      } else {
+        // データベースからデータが取得できない場合はローカルストレージから復元
+        const localRules = loadFromStorage<ExcelRule[]>('excelRules', []);
+        if (localRules.length > 0) {
+          logDebug(`ローカルストレージから${localRules.length}件のルールを復元しました`);
+          setRules(localRules);
+          
+          // オンライン状態なら、ローカルのルールをサーバーに同期
+          if (navigator.onLine) {
+            syncLocalRulesToServer(localRules);
+          } else {
+            logDebug('オフラインのため、ルールの同期は延期されます');
+          }
+        }
+      }
+    } catch (error) {
+      logError('ルールの読み込みに失敗しました', error);
+      setError('ルールの読み込みに失敗しました。ネットワーク接続を確認してください。');
+      
+      // エラー時もローカルストレージから復元
+      const localRules = loadFromStorage<ExcelRule[]>('excelRules', []);
+      if (localRules.length > 0) {
+        logDebug(`ローカルストレージから${localRules.length}件のルールを復元しました`);
+        setRules(localRules);
+      }
     } finally {
       setIsLoading(false);
     }
   };
   
-  // 初期化時にデータをロード
-  useEffect(() => {
-    console.log('データをロードします...');
-    
-    // Supabaseからルールを取得
-    loadRules();
-    
-    // その他のデータはローカルストレージから取得
-    const savedFiles = loadFromStorage<ProcessedFile[]>('recentFiles', []);
-    const savedResults = loadFromStorage<ProcessingResult[]>('processingResults', []);
-    const savedMappings = loadFromStorage<RuleFileMapping[]>('ruleMappings', []);
-    
-    // 保存されたファイルを読み込み
-    const savedFile = loadSavedFile();
-    if (savedFile) {
-      setRuleEditorFileState(savedFile);
+  // ローカルルールをサーバーに同期する
+  const syncLocalRulesToServer = async (localRules: ExcelRule[]) => {
+    logDebug(`ローカルの${localRules.length}件のルールをサーバーに同期します`);
+    for (const rule of localRules) {
+      try {
+        await createRule(rule);
+        logDebug(`ルールをサーバーに同期しました: ${rule.name}`);
+      } catch (error) {
+        logError(`ルール(${rule.name})の同期に失敗しました`, error);
+      }
+    }
+  };
+  
+  // 保留中のデータをサーバーと同期
+  const syncToServer = async () => {
+    if (!navigator.onLine) {
+      toast.error('オフラインのため同期できません');
+      return;
     }
     
-    // 保存されたシート名を読み込み
-    const savedSheetName = localStorage.getItem('lastSelectedSheet');
-    if (savedSheetName) {
-      setLastSelectedSheet(savedSheetName);
-      console.log('保存されたシート名を読み込みました:', savedSheetName);
+    logDebug('保留中のデータをサーバーと同期します', pendingRules);
+    let syncSuccess = false;
+    setIsLoading(true);
+    
+    // 削除操作を同期
+    for (const id of pendingRules.delete) {
+      try {
+        const success = await deleteSupabaseRule(id);
+        if (success) {
+          logDebug(`ルール(ID: ${id})の削除をサーバーに同期しました`);
+          syncSuccess = true;
+        }
+      } catch (error) {
+        logError(`ルール(ID: ${id})の削除の同期に失敗しました`, error);
+      }
     }
     
-    setRecentFiles(savedFiles);
-    setProcessingResults(savedResults);
-    setRuleMappings(savedMappings);
-  }, []);
-
+    // 追加操作を同期
+    for (const rule of pendingRules.add) {
+      try {
+        const newRule = await createRule(rule);
+        if (newRule) {
+          logDebug(`ルール(${rule.name})の追加をサーバーに同期しました`);
+          syncSuccess = true;
+        }
+      } catch (error) {
+        logError(`ルール(${rule.name})の追加の同期に失敗しました`, error);
+      }
+    }
+    
+    // 更新操作を同期
+    for (const { id, rule } of pendingRules.update) {
+      try {
+        const updatedRule = await updateSupabaseRule(id, rule);
+        if (updatedRule) {
+          logDebug(`ルール(${rule.name})の更新をサーバーに同期しました`);
+          syncSuccess = true;
+        }
+      } catch (error) {
+        logError(`ルール(${rule.name})の更新の同期に失敗しました`, error);
+      }
+    }
+    
+    // 保留中の操作をクリア
+    if (syncSuccess) {
+      setPendingRules({ add: [], update: [], delete: [] });
+      saveToStorage('pendingRules', { add: [], update: [], delete: [] });
+      
+      // 最新のデータを再読み込み
+      await loadRules();
+      toast.success('データを同期しました');
+    } else {
+      toast.error('同期に失敗しました');
+    }
+    
+    setIsLoading(false);
+  };
+  
   // ローカルストレージ保存機能は残しておく（バックアップとして）
   useEffect(() => {
-    console.log('ルールをローカルストレージにバックアップします:', rules.length);
+    logDebug(`ルールをローカルストレージにバックアップします: ${rules.length}件`);
     saveToStorage('excelRules', rules);
   }, [rules]);
-
+  
   useEffect(() => {
     saveToStorage('recentFiles', recentFiles);
   }, [recentFiles]);
-
+  
   useEffect(() => {
     saveToStorage('processingResults', processingResults);
   }, [processingResults]);
@@ -311,94 +471,162 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   useEffect(() => {
     saveToStorage('ruleMappings', ruleMappings);
   }, [ruleMappings]);
-
+  
+  useEffect(() => {
+    saveToStorage('pendingRules', pendingRules);
+  }, [pendingRules]);
+  
   // ルールの追加（Supabase + ローカルステート）
-  const addRule = async (rule: ExcelRule) => {
-    console.log('ルールを追加します:', rule);
+  const addRule = async (rule: ExcelRule): Promise<boolean> => {
+    logDebug('ルールを追加します:', rule.name);
     setIsLoading(true);
     setError(null);
     
     try {
+      if (!navigator.onLine) {
+        // オフライン時はローカルのみに保存し、同期待ちリストに追加
+        setRules(prev => [...prev, rule]);
+        setPendingRules(prev => ({
+          ...prev,
+          add: [...prev.add, rule]
+        }));
+        toast.success('ルールをオフラインで保存しました（オンライン時に同期されます）');
+        setIsLoading(false);
+        return true;
+      }
+      
       const createdRule = await createRule(rule);
       if (createdRule) {
         setRules(prev => [...prev, createdRule]);
-        console.log('ルールをSupabaseに保存しました:', createdRule.id);
+        logDebug('ルールをSupabaseに保存しました:', createdRule.id);
+        setIsLoading(false);
+        return true;
       } else {
         throw new Error('ルールの作成に失敗しました');
       }
-    } catch (err) {
-      console.error('Supabaseへのルール保存に失敗しました:', err);
+    } catch (error) {
+      logError('Supabaseへのルール保存に失敗しました:', error);
       setError('ルールの保存に失敗しました');
       
       // ローカルステートには追加（バックアップとして）
       setRules(prev => [...prev, rule]);
-    } finally {
+      setPendingRules(prev => ({
+        ...prev,
+        add: [...prev.add, rule]
+      }));
+      toast.error('ローカルに保存しました（サーバーに保存できませんでした）');
       setIsLoading(false);
+      return false;
     }
   };
-
+  
   // ルールの更新（Supabase + ローカルステート）
-  const updateRule = async (id: string, updatedRule: ExcelRule) => {
-    console.log('ルールを更新します:', id, updatedRule);
+  const updateRule = async (id: string, updatedRule: ExcelRule): Promise<boolean> => {
+    logDebug('ルールを更新します:', id, updatedRule.name);
     setIsLoading(true);
     setError(null);
     
     try {
+      if (!navigator.onLine) {
+        // オフライン時はローカルのみに保存し、同期待ちリストに追加
+        setRules(prev => prev.map(r => r.id === id ? updatedRule : r));
+        setPendingRules(prev => ({
+          ...prev,
+          update: [...prev.update.filter(item => item.id !== id), { id, rule: updatedRule }]
+        }));
+        toast.success('ルールをオフラインで更新しました（オンライン時に同期されます）');
+        setIsLoading(false);
+        return true;
+      }
+      
       const result = await updateSupabaseRule(id, updatedRule);
       if (result) {
         setRules(prev => prev.map(r => r.id === id ? result : r));
-        console.log('ルールをSupabaseで更新しました:', id);
+        logDebug('ルールをSupabaseで更新しました:', id);
+        setIsLoading(false);
+        return true;
       } else {
         throw new Error('ルールの更新に失敗しました');
       }
-    } catch (err) {
-      console.error('Supabaseでのルール更新に失敗しました:', err);
+    } catch (error) {
+      logError('Supabaseでのルール更新に失敗しました:', error);
       setError('ルールの更新に失敗しました');
       
       // ローカルステートでは更新（バックアップとして）
       setRules(prev => prev.map(r => r.id === id ? updatedRule : r));
-    } finally {
+      setPendingRules(prev => ({
+        ...prev,
+        update: [...prev.update.filter(item => item.id !== id), { id, rule: updatedRule }]
+      }));
+      toast.error('ローカルで更新しました（サーバーに保存できませんでした）');
       setIsLoading(false);
+      return false;
     }
   };
   
   // ルールの削除（Supabase + ローカルステート）
-  const deleteRule = async (id: string) => {
-    console.log('ルールを削除します:', id);
+  const deleteRule = async (id: string): Promise<boolean> => {
+    logDebug('ルールを削除します:', id);
     setIsLoading(true);
     setError(null);
     
     try {
+      if (!navigator.onLine) {
+        // オフライン時はローカルのみで削除し、同期待ちリストに追加
+        setRules(prev => prev.filter(r => r.id !== id));
+        setRuleMappings(prev => prev.filter(m => m.ruleId !== id));
+        setPendingRules(prev => ({
+          ...prev,
+          delete: [...prev.delete, id],
+          // 追加待ちや更新待ちからも削除
+          add: prev.add.filter(r => r.id !== id),
+          update: prev.update.filter(item => item.id !== id)
+        }));
+        toast.success('ルールをオフラインで削除しました（オンライン時に同期されます）');
+        setIsLoading(false);
+        return true;
+      }
+      
       const success = await deleteSupabaseRule(id);
       if (success) {
         setRules(prev => prev.filter(r => r.id !== id));
         // 関連付けマッピングも削除
         setRuleMappings(prev => prev.filter(m => m.ruleId !== id));
-        console.log('ルールをSupabaseから削除しました:', id);
+        logDebug('ルールをSupabaseから削除しました:', id);
+        setIsLoading(false);
+        return true;
       } else {
         throw new Error('ルールの削除に失敗しました');
       }
-    } catch (err) {
-      console.error('Supabaseでのルール削除に失敗しました:', err);
+    } catch (error) {
+      logError('Supabaseでのルール削除に失敗しました:', error);
       setError('ルールの削除に失敗しました');
       
       // ローカルステートでは削除（バックアップとして）
       setRules(prev => prev.filter(r => r.id !== id));
       // 関連付けマッピングも削除
       setRuleMappings(prev => prev.filter(m => m.ruleId !== id));
-    } finally {
+      setPendingRules(prev => ({
+        ...prev,
+        delete: [...prev.delete, id],
+        // 追加待ちや更新待ちからも削除
+        add: prev.add.filter(r => r.id !== id),
+        update: prev.update.filter(item => item.id !== id)
+      }));
+      toast.error('ローカルで削除しました（サーバーで削除できませんでした）');
       setIsLoading(false);
+      return false;
     }
   };
-
+  
   // 既存のメソッド
   const addProcessedFile = (file: ProcessedFile) => {
-    console.log('処理済みファイルを追加:', file.name);
+    logDebug('処理済みファイルを追加:', file.name);
     setRecentFiles(prev => [file, ...prev.filter(f => f.id !== file.id)].slice(0, 10));
   };
-
+  
   const addProcessingResult = (result: ProcessingResult) => {
-    console.log('処理結果を追加:', result.fileName, `(${result.records.length} レコード)`);
+    logDebug('処理結果を追加:', result.fileName, `(${result.records.length} レコード)`);
     
     // Fileオブジェクトを含まないようにする (シリアライズの問題を回避)
     const serializableResult = {
@@ -411,9 +639,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return exists ? prev.map(r => r.fileId === result.fileId ? serializableResult : r) : [...prev, serializableResult];
     });
   };
-
+  
   const getProcessingResult = (fileId: string) => processingResults.find(r => r.fileId === fileId);
-
+  
   const contextValue: AppContextType = {
     rules,
     addRule,
@@ -437,20 +665,14 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     copyRuleWithFileMapping,
     isLoading,
     error,
-    refreshRules: loadRules
+    refreshRules: loadRules,
+    syncToServer,
+    isOnline
   };
-
+  
   return (
     <AppContext.Provider value={contextValue}>
       {children}
     </AppContext.Provider>
   );
-};
-
-export const useAppContext = () => {
-  const context = useContext(AppContext);
-  if (!context) {
-    throw new Error('useAppContext must be used within an AppContextProvider');
-  }
-  return context;
 };

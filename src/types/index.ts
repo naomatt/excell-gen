@@ -37,6 +37,16 @@ export interface SheetRule {
   mappingRules: MappingRule[];
 }
 
+// フォルダ情報
+export interface RuleFolder {
+  id: string;
+  name: string;
+  description: string;
+  color: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ExcelRule {
   id: string;
   name: string;
@@ -44,6 +54,7 @@ export interface ExcelRule {
   createdAt: string;
   updatedAt: string;
   sheetRules: SheetRule[];
+  folderId?: string; // ルールが属するフォルダのID（未分類の場合はnull）
 }
 
 // File Types

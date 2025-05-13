@@ -1,4 +1,4 @@
-import { supabase } from '../utils/supabase';
+import { supabase } from '../lib/supabaseClient';
 import { ExcelRule } from '../types';
 
 // テーブル名
@@ -6,9 +6,35 @@ const EXCEL_RULES_TABLE = 'excel_rules';
 const SHEET_RULES_TABLE = 'excel_sheet_rules';
 const MAPPING_RULES_TABLE = 'excel_mapping_rules';
 
+// デバッグログユーティリティ
+const logDebug = (message: string, data?: any) => {
+  console.log(`[RuleService] ${message}`, data || '');
+};
+
+const logError = (message: string, error: any) => {
+  console.error(`[RuleService] ${message}`, error);
+  // エラーの詳細情報を取得
+  if (error) {
+    if (error.code) console.error(`Error code: ${error.code}`);
+    if (error.message) console.error(`Error message: ${error.message}`);
+    if (error.details) console.error(`Error details: ${error.details}`);
+    if (error.stack) console.error(`Error stack: ${error.stack}`);
+  }
+};
+
 // ルール一覧の取得
 export const fetchRules = async (): Promise<ExcelRule[]> => {
+  logDebug('ルール一覧を取得します');
   try {
+    // Supabaseクライアントが適切に初期化されているか確認
+    if (!supabase || typeof supabase.from !== 'function') {
+      logError('Supabaseクライアントが適切に初期化されていません', { 
+        supabase: !!supabase, 
+        from: typeof supabase?.from 
+      });
+      throw new Error('Supabase接続が初期化されていません');
+    }
+
     const { data, error } = await supabase
       .from(EXCEL_RULES_TABLE)
       .select(`
@@ -21,15 +47,18 @@ export const fetchRules = async (): Promise<ExcelRule[]> => {
       .order('created_at', { ascending: false });
 
     if (error) throw error;
+    
+    logDebug(`${data?.length || 0}件のルールを取得しました`);
     return data || [];
   } catch (error) {
-    console.error('ルールの取得に失敗しました:', error);
+    logError('ルールの取得に失敗しました', error);
     return [];
   }
 };
 
 // 単一ルールの取得
 export const fetchRule = async (id: string): Promise<ExcelRule | null> => {
+  logDebug(`ルールを取得します: ID=${id}`);
   try {
     const { data, error } = await supabase
       .from(EXCEL_RULES_TABLE)
@@ -44,15 +73,25 @@ export const fetchRule = async (id: string): Promise<ExcelRule | null> => {
       .single();
 
     if (error) throw error;
+    
+    logDebug(`ルールを取得しました: ID=${id}`, {
+      name: data?.name,
+      sheetCount: data?.sheetRules?.length || 0
+    });
     return data;
   } catch (error) {
-    console.error(`ルール(ID: ${id})の取得に失敗しました:`, error);
+    logError(`ルール(ID: ${id})の取得に失敗しました`, error);
     return null;
   }
 };
 
 // ルールの作成（複数テーブルに関連レコードを作成するため、トランザクション的に処理）
 export const createRule = async (rule: ExcelRule): Promise<ExcelRule | null> => {
+  logDebug(`ルールを作成します: ${rule.name}`, {
+    id: rule.id,
+    sheetCount: rule.sheetRules.length
+  });
+  
   try {
     // メインのルールを作成
     const { data: createdRule, error: mainError } = await supabase
@@ -68,9 +107,15 @@ export const createRule = async (rule: ExcelRule): Promise<ExcelRule | null> => 
       .single();
 
     if (mainError) throw mainError;
+    logDebug(`メインルールを作成しました: ID=${rule.id}`);
 
     // シートルールを作成
     for (const sheetRule of rule.sheetRules) {
+      logDebug(`シートルールを作成します: ${sheetRule.name}`, {
+        sheetId: sheetRule.id,
+        mappingCount: sheetRule.mappingRules.length
+      });
+      
       const { error: sheetError } = await supabase
         .from(SHEET_RULES_TABLE)
         .insert({
@@ -92,32 +137,41 @@ export const createRule = async (rule: ExcelRule): Promise<ExcelRule | null> => 
           target_field: mappingRule.targetField,
           source_type: mappingRule.sourceType,
           // 条件付きフィールド
-          ...(mappingRule.cell && { cell: JSON.stringify(mappingRule.cell) }),
-          ...(mappingRule.range && { range: JSON.stringify(mappingRule.range) }),
+          ...(mappingRule.cell && { cell: typeof mappingRule.cell === 'string' ? mappingRule.cell : JSON.stringify(mappingRule.cell) }),
+          ...(mappingRule.range && { range: typeof mappingRule.range === 'string' ? mappingRule.range : JSON.stringify(mappingRule.range) }),
           ...(mappingRule.formula && { formula: mappingRule.formula }),
-          ...(mappingRule.direct_value && { direct_value: mappingRule.direct_value }),
-          ...(mappingRule.defaultValue && { default_value: mappingRule.defaultValue }),
-          ...(mappingRule.conditions && { conditions: JSON.stringify(mappingRule.conditions) })
+          ...(mappingRule.direct_value !== undefined && { direct_value: mappingRule.direct_value }),
+          ...(mappingRule.defaultValue !== undefined && { default_value: mappingRule.defaultValue }),
+          ...(mappingRule.conditions && { conditions: typeof mappingRule.conditions === 'string' ? mappingRule.conditions : JSON.stringify(mappingRule.conditions) })
         };
 
         const { error: mappingError } = await supabase
           .from(MAPPING_RULES_TABLE)
           .insert(mappingData);
 
-        if (mappingError) throw mappingError;
+        if (mappingError) {
+          logError(`マッピングルール(${mappingRule.name})の作成に失敗しました`, mappingError);
+          throw mappingError;
+        }
       }
+      
+      logDebug(`シートルール(${sheetRule.name})を作成しました: ${sheetRule.mappingRules.length}件のマッピング`);
     }
 
-    // 作成に成功したら、完全なデータを取得して返す
+    logDebug(`ルール(${rule.name})の作成が完了しました`);
     return await fetchRule(rule.id);
   } catch (error) {
-    console.error('ルールの作成に失敗しました:', error);
+    logError(`ルール(${rule.name})の作成に失敗しました`, error);
     return null;
   }
 };
 
 // ルールの更新
 export const updateRule = async (id: string, rule: ExcelRule): Promise<ExcelRule | null> => {
+  logDebug(`ルールを更新します: ID=${id}, 名前=${rule.name}`, {
+    sheetCount: rule.sheetRules.length
+  });
+  
   try {
     // まず既存のシートルールとマッピングルールを削除
     // Supabaseではカスケード削除を設定していることを前提としています
@@ -128,6 +182,7 @@ export const updateRule = async (id: string, rule: ExcelRule): Promise<ExcelRule
       .eq('rule_id', id);
 
     if (deleteError) throw deleteError;
+    logDebug(`シートルールを削除しました: rule_id=${id}`);
 
     // メインのルールを更新
     const { error: updateError } = await supabase
@@ -140,9 +195,15 @@ export const updateRule = async (id: string, rule: ExcelRule): Promise<ExcelRule
       .eq('id', id);
 
     if (updateError) throw updateError;
+    logDebug(`メインルールを更新しました: ID=${id}`);
 
     // シートルールを再作成
     for (const sheetRule of rule.sheetRules) {
+      logDebug(`シートルールを再作成します: ${sheetRule.name}`, {
+        sheetId: sheetRule.id,
+        mappingCount: sheetRule.mappingRules.length
+      });
+      
       const { error: sheetError } = await supabase
         .from(SHEET_RULES_TABLE)
         .insert({
@@ -164,32 +225,39 @@ export const updateRule = async (id: string, rule: ExcelRule): Promise<ExcelRule
           target_field: mappingRule.targetField,
           source_type: mappingRule.sourceType,
           // 条件付きフィールド
-          ...(mappingRule.cell && { cell: JSON.stringify(mappingRule.cell) }),
-          ...(mappingRule.range && { range: JSON.stringify(mappingRule.range) }),
+          ...(mappingRule.cell && { cell: typeof mappingRule.cell === 'string' ? mappingRule.cell : JSON.stringify(mappingRule.cell) }),
+          ...(mappingRule.range && { range: typeof mappingRule.range === 'string' ? mappingRule.range : JSON.stringify(mappingRule.range) }),
           ...(mappingRule.formula && { formula: mappingRule.formula }),
-          ...(mappingRule.direct_value && { direct_value: mappingRule.direct_value }),
-          ...(mappingRule.defaultValue && { default_value: mappingRule.defaultValue }),
-          ...(mappingRule.conditions && { conditions: JSON.stringify(mappingRule.conditions) })
+          ...(mappingRule.direct_value !== undefined && { direct_value: mappingRule.direct_value }),
+          ...(mappingRule.defaultValue !== undefined && { default_value: mappingRule.defaultValue }),
+          ...(mappingRule.conditions && { conditions: typeof mappingRule.conditions === 'string' ? mappingRule.conditions : JSON.stringify(mappingRule.conditions) })
         };
 
         const { error: mappingError } = await supabase
           .from(MAPPING_RULES_TABLE)
           .insert(mappingData);
 
-        if (mappingError) throw mappingError;
+        if (mappingError) {
+          logError(`マッピングルール(${mappingRule.name})の作成に失敗しました`, mappingError);
+          throw mappingError;
+        }
       }
+      
+      logDebug(`シートルール(${sheetRule.name})を再作成しました: ${sheetRule.mappingRules.length}件のマッピング`);
     }
 
+    logDebug(`ルール(ID: ${id})の更新が完了しました`);
     // 更新に成功したら、完全なデータを取得して返す
     return await fetchRule(id);
   } catch (error) {
-    console.error(`ルール(ID: ${id})の更新に失敗しました:`, error);
+    logError(`ルール(ID: ${id})の更新に失敗しました`, error);
     return null;
   }
 };
 
 // ルールの削除
 export const deleteRule = async (id: string): Promise<boolean> => {
+  logDebug(`ルールを削除します: ID=${id}`);
   try {
     // Supabaseではカスケード削除を設定していることを前提としています
     const { error } = await supabase
@@ -198,9 +266,10 @@ export const deleteRule = async (id: string): Promise<boolean> => {
       .eq('id', id);
 
     if (error) throw error;
+    logDebug(`ルール(ID: ${id})を削除しました`);
     return true;
   } catch (error) {
-    console.error(`ルール(ID: ${id})の削除に失敗しました:`, error);
+    logError(`ルール(ID: ${id})の削除に失敗しました`, error);
     return false;
   }
 }; 
