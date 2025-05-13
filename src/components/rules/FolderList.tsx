@@ -10,13 +10,17 @@ interface FolderListProps {
   onSelectFolder: (folderId: string | null) => void;
   onMoveRuleToFolder?: (ruleId: string, folderId: string | null) => Promise<boolean>;
   onEditRule?: (rule: ExcelRule) => void;
+  isSidebarOpen?: boolean;
+  onToggleSidebar?: () => void;
 }
 
 const FolderList: React.FC<FolderListProps> = ({ 
   selectedFolderId, 
   onSelectFolder,
   onMoveRuleToFolder,
-  onEditRule
+  onEditRule,
+  isSidebarOpen,
+  onToggleSidebar
 }) => {
   const [folders, setFolders] = useState<RuleFolder[]>([]);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
@@ -376,6 +380,17 @@ const FolderList: React.FC<FolderListProps> = ({
         </div>
       </div>
       
+      {/* フォルダ表示/非表示ボタン */}
+      {onToggleSidebar && (
+        <button 
+          className="w-full flex items-center justify-center py-2 mb-3 bg-gray-100 text-gray-700 rounded-md hover:bg-gray-200 transition-colors"
+          onClick={onToggleSidebar}
+        >
+          <Folder size={16} className="mr-2" />
+          <span className="text-sm">{isSidebarOpen ? 'フォルダを隠す' : 'フォルダを表示'}</span>
+        </button>
+      )}
+      
       {/* ローディング表示 */}
       {isLoading && (
         <div className="text-center py-2 text-sm text-gray-500">
@@ -400,7 +415,7 @@ const FolderList: React.FC<FolderListProps> = ({
           <div 
             className={`flex-1 flex items-center py-1 px-2 rounded-md cursor-pointer ${
               selectedFolderId === null ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-100'
-            } ${dragOverFolderId === null ? 'border-2 border-dashed border-blue-400 bg-blue-50' : ''}`}
+            } ${dragOverFolderId === null && draggedRuleId !== null ? 'border-2 border-dashed border-blue-400 bg-blue-50' : ''}`}
             onClick={() => onSelectFolder(null)}
             onDragOver={(e) => handleDragOver(e, null)}
             onDragLeave={handleDragLeave}

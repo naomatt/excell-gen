@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ArrowLeft, Save, Plus, Trash2, HelpCircle, Table, FileSpreadsheet, Check, ChevronDown, ChevronRight, Edit, GripVertical } from 'lucide-react';
+import { ArrowLeft, Save, Plus, Trash2, HelpCircle, Table, FileSpreadsheet, Check, ChevronDown, ChevronRight, Edit, GripVertical, X } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { ExcelRule, SheetRule, MappingRule, Condition } from '../../types';
 import SheetPreview from '../processor/SheetPreview';
@@ -54,6 +54,9 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
   // ドラッグ&ドロップの状態管理
   const [draggedItem, setDraggedItem] = useState<number | null>(null);
   const [dragOverItem, setDragOverItem] = useState<number | null>(null);
+  
+  // ファイルドロップのための状態管理
+  const [isDragOver, setIsDragOver] = useState(false);
   
   // セル範囲選択用の状態管理を追加
   const [isSelectingRange, setIsSelectingRange] = useState(false);
@@ -461,7 +464,7 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
   };
 
   // 入力元タイプによって表示内容を切り替える
-  const renderInputSourceContent = (header: typeof headers[0], index: number) => {
+  const renderInputSourceContent = (header: typeof headers[0], idx: number) => {
     // 入力元が未選択の場合は何も表示しない
     if (!header.sourceType) {
       return (
@@ -474,10 +477,10 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
     // 直接入力モード
     if (header.sourceType === 'direct') {
       console.log('直接入力モードのヘッダー:', {
-        index,
+        index: idx,
         name: header.name,
         directValue: header.directValue,
-        confirmed: confirmedFields[index]
+        confirmed: confirmedFields[idx]
       });
 
       return (
@@ -488,23 +491,23 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
             </label>
             <input
               type="text"
-              className={`w-full p-2 border rounded-md focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${confirmedFields[index] ? 'bg-gray-100' : ''}`}
+              className={`w-full p-2 border rounded-md focus:border-blue-500 focus:ring-1 focus:ring-blue-500 ${confirmedFields[idx] ? 'bg-gray-100' : ''}`}
               value={header.directValue || ''}
               onChange={(e) => {
-                if (!isFieldEditable(index)) return;
+                if (!isFieldEditable(idx)) return;
                 console.log('直接入力値の変更:', {
-                  index,
+                  index: idx,
                   oldValue: header.directValue,
                   newValue: e.target.value
                 });
-                handleUpdateHeader(index, { directValue: e.target.value })
+                handleUpdateHeader(idx, { directValue: e.target.value })
               }}
               placeholder="値を直接入力"
-              disabled={!isFieldEditable(index)}
+              disabled={!isFieldEditable(idx)}
             />
           </div>
           {/* 直接入力値の表示（確定済みの場合） */}
-          {confirmedFields[index] && (
+          {confirmedFields[idx] && (
             <div className="mt-2 p-2 bg-gray-50 border border-gray-200 rounded">
               <div className="flex items-center">
                 <span className="text-xs text-gray-500 mr-2">入力値:</span>
@@ -521,25 +524,43 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
       <div className="mt-4 border-t pt-4">
         {/* Excelファイルアップロード */}
         {!workbook && (
-          <div className="bg-gray-50 border-2 border-dashed border-gray-300 rounded-lg p-4 mb-4 text-center">
-            <FileSpreadsheet className="h-8 w-8 text-gray-400 mx-auto mb-2" />
-            <p className="text-gray-600 mb-2 text-sm">
-              セルを視覚的に選択するには、Excelファイルをアップロードしてください
+          <div 
+            className={`bg-gray-50 border-2 border-dashed ${
+              isDragOver ? 'border-blue-500 bg-blue-100' : 'border-gray-300'
+            } rounded-lg p-5 mb-4 text-center cursor-pointer`}
+            onDragOver={(e) => {
+              e.preventDefault();
+              setIsDragOver(true);
+            }}
+            onDragLeave={() => setIsDragOver(false)}
+            onDrop={handleFileDrop}
+            onClick={() => {
+              const fileInput = document.getElementById('excel-file-input-field');
+              if (fileInput) fileInput.click();
+            }}
+          >
+            <FileSpreadsheet className={`h-10 w-10 mx-auto mb-2 ${isDragOver ? 'text-blue-600' : 'text-gray-400'}`} />
+            <p className={`text-sm ${isDragOver ? 'text-blue-700' : 'text-gray-600'} mb-2`}>
+              {isDragOver ? 'ドロップしてファイルをアップロード' : 'セルを視覚的に選択するには、Excelファイルをアップロードしてください'}
             </p>
-            <label className={`inline-block px-3 py-1 ${
-              isFieldEditable(index) 
-                ? 'bg-blue-600 text-white hover:bg-blue-700' 
-                : 'bg-gray-400 text-white cursor-not-allowed'
-              } rounded-md text-sm`}>
-              Excelファイルを選択
-              <input
-                type="file"
-                className="hidden"
-                accept=".xlsx,.xls"
-                onChange={handleFileChange}
-                disabled={!isFieldEditable(index)}
-              />
-            </label>
+            <div className="flex items-center justify-center">
+              <label className={`inline-block px-3 py-1.5 ${
+                isFieldEditable(idx) 
+                  ? 'bg-blue-600 text-white hover:bg-blue-700' 
+                  : 'bg-gray-400 text-white cursor-not-allowed'
+                } rounded-md text-sm transition-colors`}>
+                Excelファイルを選択
+                <input
+                  id="excel-file-input-field"
+                  type="file"
+                  className="hidden"
+                  accept=".xlsx,.xls"
+                  onChange={handleFileChange}
+                  disabled={!isFieldEditable(idx)}
+                />
+              </label>
+              <p className="text-xs text-gray-400 ml-2">または ここにドラッグ</p>
+            </div>
           </div>
         )}
 
@@ -551,20 +572,35 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   シートを選択
                 </label>
-                <select
-                  className={`w-full p-2 border border-gray-300 rounded-md ${confirmedFields[index] ? 'bg-gray-100' : ''}`}
-                  value={selectedSheet || ''}
-                  onChange={(e) => {
-                    if (!isFieldEditable(index)) return;
-                    const newSheetName = e.target.value;
-                    handleSheetChange(newSheetName);
-                  }}
-                  disabled={!isFieldEditable(index)}
-                >
-                  {workbook.SheetNames.map((name) => (
-                    <option key={name} value={name}>{name}</option>
-                  ))}
-                </select>
+                <div className="flex items-center">
+                  <select
+                    className={`flex-1 p-2 border border-gray-300 rounded-md ${confirmedFields[idx] ? 'bg-gray-100' : ''}`}
+                    value={selectedSheet || ''}
+                    onChange={(e) => {
+                      if (!isFieldEditable(idx)) return;
+                      const newSheetName = e.target.value;
+                      handleSheetChange(newSheetName);
+                    }}
+                    disabled={!isFieldEditable(idx)}
+                  >
+                    {workbook.SheetNames.map((name) => (
+                      <option key={name} value={name}>{name}</option>
+                    ))}
+                  </select>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setExcelFile(null);
+                      setWorkbook(null);
+                      setSelectedSheet(null);
+                      setRuleEditorFile(null);
+                    }}
+                    className="ml-2 p-1 text-gray-500 hover:text-red-500 transition-colors"
+                    title="ファイルを削除"
+                  >
+                    <X size={18} />
+                  </button>
+                </div>
               </div>
             </div>
 
@@ -572,39 +608,39 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
             <div className="mb-4">
               <label className="block text-sm font-medium text-gray-700 mb-2">セル選択タイプ</label>
               <div className="flex space-x-4">
-                <label className={`flex items-center ${!isFieldEditable(index) ? 'opacity-60' : ''}`}>
+                <label className={`flex items-center ${!isFieldEditable(idx) ? 'opacity-60' : ''}`}>
                   <input
                     type="radio"
-                    name={`cellType-${index}`}
+                    name={`cellType-${idx}`}
                     checked={header.sourceType === 'cell' && !header.range}
                     onChange={() => {
-                      if (!isFieldEditable(index)) return;
-                      handleUpdateHeader(index, {
+                      if (!isFieldEditable(idx)) return;
+                      handleUpdateHeader(idx, {
                         cell: { row: 1, column: 1 },
                         range: undefined,
                         sourceType: 'cell'
                       });
                     }}
                     className="mr-2"
-                    disabled={!isFieldEditable(index)}
+                    disabled={!isFieldEditable(idx)}
                   />
                   <span>単一セル</span>
                 </label>
-                <label className={`flex items-center ${!isFieldEditable(index) ? 'opacity-60' : ''}`}>
+                <label className={`flex items-center ${!isFieldEditable(idx) ? 'opacity-60' : ''}`}>
                   <input
                     type="radio"
-                    name={`cellType-${index}`}
+                    name={`cellType-${idx}`}
                     checked={header.sourceType === 'range'}
                     onChange={() => {
-                      if (!isFieldEditable(index)) return;
-                      handleUpdateHeader(index, {
+                      if (!isFieldEditable(idx)) return;
+                      handleUpdateHeader(idx, {
                         cell: undefined,
                         range: { startRow: 1, startColumn: 1, endRow: 2, endColumn: 2 },
                         sourceType: 'range'
                       });
                     }}
                     className="mr-2"
-                    disabled={!isFieldEditable(index)}
+                    disabled={!isFieldEditable(idx)}
                   />
                   <span>セル範囲</span>
                 </label>
@@ -624,10 +660,10 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
                         className="w-full p-2 border rounded-md"
                         value={header.cell ? numberToColumnLetter(header.cell.column) : ''}
                         onChange={(e) => {
-                          if (!isFieldEditable(index)) return;
+                          if (!isFieldEditable(idx)) return;
                           const col = columnLetterToNumber(e.target.value);
                           if (col > 0) {
-                            handleUpdateHeader(index, {
+                            handleUpdateHeader(idx, {
                               cell: { ...header.cell!, column: col }
                             });
                           }
@@ -642,10 +678,10 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
                         className="w-full p-2 border rounded-md"
                         value={header.cell?.row || ''}
                         onChange={(e) => {
-                          if (!isFieldEditable(index)) return;
+                          if (!isFieldEditable(idx)) return;
                           const row = parseInt(e.target.value);
                           if (row > 0) {
-                            handleUpdateHeader(index, {
+                            handleUpdateHeader(idx, {
                               cell: { ...header.cell!, row }
                             });
                           }
@@ -668,10 +704,10 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
                             className="w-full p-2 border rounded-md"
                             value={header.range ? numberToColumnLetter(header.range.startColumn) : ''}
                             onChange={(e) => {
-                              if (!isFieldEditable(index)) return;
+                              if (!isFieldEditable(idx)) return;
                               const col = columnLetterToNumber(e.target.value);
                               if (col > 0) {
-                                handleUpdateHeader(index, {
+                                handleUpdateHeader(idx, {
                                   range: { ...header.range!, startColumn: col }
                                 });
                               }
@@ -686,10 +722,10 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
                             className="w-full p-2 border rounded-md"
                             value={header.range?.startRow || ''}
                             onChange={(e) => {
-                              if (!isFieldEditable(index)) return;
+                              if (!isFieldEditable(idx)) return;
                               const row = parseInt(e.target.value);
                               if (row > 0) {
-                                handleUpdateHeader(index, {
+                                handleUpdateHeader(idx, {
                                   range: { ...header.range!, startRow: row }
                                 });
                               }
@@ -707,7 +743,7 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
                                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                             }`}
                             onClick={() => {
-                              if (!isFieldEditable(index)) return;
+                              if (!isFieldEditable(idx)) return;
                               setRangeSelectionMode(rangeSelectionMode === 'start' ? null : 'start');
                             }}
                           >
@@ -728,10 +764,10 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
                             className="w-full p-2 border rounded-md"
                             value={header.range ? numberToColumnLetter(header.range.endColumn) : ''}
                             onChange={(e) => {
-                              if (!isFieldEditable(index)) return;
+                              if (!isFieldEditable(idx)) return;
                               const col = columnLetterToNumber(e.target.value);
                               if (col > 0) {
-                                handleUpdateHeader(index, {
+                                handleUpdateHeader(idx, {
                                   range: { ...header.range!, endColumn: col }
                                 });
                               }
@@ -746,10 +782,10 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
                             className="w-full p-2 border rounded-md"
                             value={header.range?.endRow || ''}
                             onChange={(e) => {
-                              if (!isFieldEditable(index)) return;
+                              if (!isFieldEditable(idx)) return;
                               const row = parseInt(e.target.value);
                               if (row > 0) {
-                                handleUpdateHeader(index, {
+                                handleUpdateHeader(idx, {
                                   range: { ...header.range!, endRow: row }
                                 });
                               }
@@ -767,7 +803,7 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
                                 : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
                             }`}
                             onClick={() => {
-                              if (!isFieldEditable(index)) return;
+                              if (!isFieldEditable(idx)) return;
                               setRangeSelectionMode(rangeSelectionMode === 'end' ? null : 'end');
                             }}
                           >
@@ -783,7 +819,7 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
 
             {/* シートプレビュー */}
             {workbook && selectedSheet && (
-              <div className="mt-4">
+              <div className="mt-6">
                 {/* 現在の選択内容の表示 */}
                 <div className="mb-4 p-3 bg-gray-50 border border-gray-200 rounded-lg">
                   <h4 className="text-sm font-medium text-gray-700 mb-2">現在の選択内容</h4>
@@ -804,93 +840,120 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
                   </div>
                 </div>
 
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-medium text-gray-700">シートプレビュー</h3>
-                  {header.range && (
-                    <p className="text-xs text-gray-500">
-                      {rangeSelectionMode === 'start' ? '開始位置をクリック' :
-                       rangeSelectionMode === 'end' ? '終了位置をクリック' :
-                       '開始/終了位置を選択ボタンから選択'}
-                    </p>
-                  )}
-                </div>
-                <div className="border rounded-lg overflow-hidden">
-                  <SheetPreview
-                    workbook={workbook}
-                    sheetName={selectedSheet}
-                    onSelectCell={(row, col) => {
-                      if (!isFieldEditable(index)) return;
-                      
-                      if (header.sourceType === 'cell' && !header.range) {
-                        // 単一セルの場合
-                        handleUpdateHeader(index, {
-                          cell: { row: row + 1, column: col + 1 }
-                        });
-                      } else if (header.sourceType === 'range') {
-                        // セル範囲の場合
-                        if (rangeSelectionMode === 'start') {
-                          // 開始位置を設定
-                          const currentRange = header.range || {
-                            startRow: row + 1,
-                            startColumn: col + 1,
-                            endRow: row + 1,
-                            endColumn: col + 1
-                          };
+                <div className="border rounded-lg overflow-hidden bg-white">
+                  <div className="bg-gray-50 px-4 py-2 border-b flex items-center justify-between">
+                    <h3 className="text-sm font-medium text-gray-700">シートプレビュー</h3>
+                    {header.range && (
+                      <p className="text-xs text-gray-500 bg-blue-50 px-2 py-1 rounded">
+                        {rangeSelectionMode === 'start' ? '開始位置をクリック' :
+                         rangeSelectionMode === 'end' ? '終了位置をクリック' :
+                         'プレビューから直接セルを選択できます'}
+                      </p>
+                    )}
+                  </div>
+                  <div className="max-h-[300px]">
+                    <SheetPreview
+                      workbook={workbook}
+                      sheetName={selectedSheet}
+                      onSelectCell={(row, col) => {
+                        if (!isFieldEditable(idx)) return;
+                        
+                        if (header.sourceType === 'cell' && !header.range) {
+                          // 単一セルの場合
+                          const newRow = row + 1;
+                          const newCol = col + 1;
                           
-                          handleUpdateHeader(index, {
-                            range: {
-                              ...currentRange,
-                              startRow: row + 1,
-                              startColumn: col + 1
-                            }
+                          // 選択されたセルの情報を更新
+                          handleUpdateHeader(idx, {
+                            cell: { row: newRow, column: newCol }
                           });
-                          console.log(`開始位置を設定: ${numberToColumnLetter(col + 1)}${row + 1}`);
-                          setRangeSelectionMode(null);
-                        } else if (rangeSelectionMode === 'end') {
-                          // 終了位置を設定
-                          const currentRange = header.range || {
-                            startRow: 1,
-                            startColumn: 1,
-                            endRow: row + 1,
-                            endColumn: col + 1
-                          };
                           
-                          handleUpdateHeader(index, {
-                            range: {
-                              ...currentRange,
+                          // セル選択イベントを記録
+                          console.log(`セル選択: 行=${newRow}, 列=${numberToColumnLetter(newCol)} (${newCol})`);
+                          
+                          // フォーカスが外れないようにトーストで通知
+                          toast.success(`セル ${numberToColumnLetter(newCol)}${newRow} を選択しました`, {
+                            duration: 1500,
+                            position: 'bottom-right',
+                          });
+                        } else if (header.sourceType === 'range') {
+                          // セル範囲の場合
+                          if (rangeSelectionMode === 'start') {
+                            // 開始位置を設定
+                            const currentRange = header.range || {
+                              startRow: row + 1,
+                              startColumn: col + 1,
                               endRow: row + 1,
                               endColumn: col + 1
-                            }
-                          });
-                          console.log(`終了位置を設定: ${numberToColumnLetter(col + 1)}${row + 1}`);
-                          setRangeSelectionMode(null);
+                            };
+                            
+                            handleUpdateHeader(idx, {
+                              range: {
+                                ...currentRange,
+                                startRow: row + 1,
+                                startColumn: col + 1
+                              }
+                            });
+                            console.log(`開始位置を設定: ${numberToColumnLetter(col + 1)}${row + 1}`);
+                            setRangeSelectionMode(null);
+                            
+                            // トースト通知
+                            toast.success(`開始位置: ${numberToColumnLetter(col + 1)}${row + 1}`, {
+                              duration: 1500,
+                              position: 'bottom-right',
+                            });
+                          } else if (rangeSelectionMode === 'end') {
+                            // 終了位置を設定
+                            const currentRange = header.range || {
+                              startRow: 1,
+                              startColumn: 1,
+                              endRow: row + 1,
+                              endColumn: col + 1
+                            };
+                            
+                            handleUpdateHeader(idx, {
+                              range: {
+                                ...currentRange,
+                                endRow: row + 1,
+                                endColumn: col + 1
+                              }
+                            });
+                            console.log(`終了位置を設定: ${numberToColumnLetter(col + 1)}${row + 1}`);
+                            setRangeSelectionMode(null);
+                            
+                            // トースト通知
+                            toast.success(`終了位置: ${numberToColumnLetter(col + 1)}${row + 1}`, {
+                              duration: 1500,
+                              position: 'bottom-right',
+                            });
+                          }
                         }
+                      }}
+                      selectedCells={
+                        header.sourceType === 'cell' && !header.range && header.cell ? 
+                          [{ row: header.cell.row - 1, col: header.cell.column - 1 }] : 
+                        header.sourceType === 'range' && header.range ? 
+                          [
+                            { row: header.range.startRow - 1, col: header.range.startColumn - 1 },
+                            { row: header.range.endRow - 1, col: header.range.endColumn - 1 }
+                          ] : []
                       }
-                    }}
-                    selectedCells={
-                      header.sourceType === 'cell' && !header.range && header.cell ? 
-                        [{ row: header.cell.row - 1, col: header.cell.column - 1 }] : 
-                      header.sourceType === 'range' && header.range ? 
-                        [
-                          { row: header.range.startRow - 1, col: header.range.startColumn - 1 },
-                          { row: header.range.endRow - 1, col: header.range.endColumn - 1 }
-                        ] : []
-                    }
-                  />
+                    />
+                  </div>
                 </div>
 
                 {/* フィールド確定ボタン */}
                 <div className="mt-4 flex justify-end">
                   <button
                     type="button"
-                    onClick={() => toggleFieldConfirmation(index)}
+                    onClick={() => toggleFieldConfirmation(idx)}
                     className={`px-4 py-2 rounded-md text-sm font-medium ${
-                      confirmedFields[index]
+                      confirmedFields[idx]
                         ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
                         : 'bg-green-600 text-white hover:bg-green-700'
                     } transition-colors duration-200`}
                   >
-                    {confirmedFields[index] ? '編集する' : 'フィールドを確定する'}
+                    {confirmedFields[idx] ? '編集する' : 'フィールドを確定する'}
                   </button>
                 </div>
               </div>
@@ -1159,24 +1222,54 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
   };
 
   // ファイル選択時の処理を更新
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
     const files = e.target.files;
     if (files && files.length > 0) {
       const file = files[0];
-      setExcelFile(file);
-      setRuleEditorFile(file); // コンテキストにも保存
-      
-      readExcelFile(file).then(({ workbook: wb }) => {
-        setWorkbook(wb);
-        // 最後に選択されたシートがある場合はそれを使用、なければ最初のシートを使用
-        const sheetToUse = lastSelectedSheet || wb.SheetNames[0];
-        setSelectedSheet(sheetToUse);
-        setLastSelectedSheet(sheetToUse);
-        setShowPreview(true);
-      }).catch(err => {
-        console.error('Excelファイルの読み込みに失敗しました:', err);
-      });
+      processExcelFile(file);
     }
+  };
+  
+  // ファイルドロップ時の処理
+  const handleFileDrop = (e: React.DragEvent<HTMLDivElement>): void => {
+    e.preventDefault();
+    setIsDragOver(false);
+    
+    const files = e.dataTransfer.files;
+    if (files && files.length > 0) {
+      const file = files[0];
+      
+      // Excelファイルのみを許可
+      if (file.name.endsWith('.xlsx') || file.name.endsWith('.xls')) {
+        processExcelFile(file);
+      } else {
+        toast.error('Excelファイル(.xlsx, .xls)のみがサポートされています');
+      }
+    }
+  };
+  
+  // Excel処理の共通関数
+  const processExcelFile = (file: File): void => {
+    setExcelFile(file);
+    setRuleEditorFile(file); // コンテキストにも保存
+    
+    readExcelFile(file).then(({ workbook: wb }) => {
+      setWorkbook(wb);
+      
+      // 最後に選択されたシートがある場合はそれを使用、なければ最初のシートを使用
+      const sheetToUse = lastSelectedSheet && wb.SheetNames.includes(lastSelectedSheet) 
+        ? lastSelectedSheet 
+        : wb.SheetNames[0];
+      
+      setSelectedSheet(sheetToUse);
+      setLastSelectedSheet(sheetToUse);
+      setShowPreview(true);
+      
+      toast.success(`Excelファイルを読み込みました: ${file.name}`);
+    }).catch(err => {
+      console.error('Excelファイルの読み込みに失敗しました:', err);
+      toast.error('Excelファイルの読み込みに失敗しました');
+    });
   };
 
   // 範囲選択の状態をリセットする関数
@@ -1202,7 +1295,7 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
   };
 
   // セル選択時の処理を更新
-  const handleCellSelect = (row: number, column: number) => {
+  const handleCellSelect = (row: number, column: number): void => {
     if (selectedFieldIndex === null) return;
 
     const header = headers[selectedFieldIndex];
@@ -1358,104 +1451,154 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
       case 1:
         return (
           <div className="space-y-6">
+            <div className="flex items-center justify-between">
+              <button
+                onClick={onClose}
+                className="flex items-center text-gray-600 hover:text-gray-900"
+              >
+                <ArrowLeft className="h-5 w-5 mr-2" />
+                ルール管理に戻る
+              </button>
+              <button
+                onClick={handleNextStep}
+                className="inline-flex items-center px-6 py-2.5 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors"
+              >
+                ルールを確認
+                <ChevronRight className="ml-2 h-4 w-4" />
+              </button>
+            </div>
+
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700">ルール名</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">ルール名</label>
                 <input
                   type="text"
                   value={editedRule.name}
                   onChange={(e) => setEditedRule({ ...editedRule, name: e.target.value })}
-                  className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm ${
-                    errors.name ? 'border-red-500' : ''
+                  className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-3 ${
+                    errors.name ? 'border-red-500' : 'border border-gray-300'
                   }`}
-                  placeholder="ルール名を入力"
+                  placeholder="例: 顧客データ抽出ルール"
                 />
                 {errors.name && <p className="mt-1 text-sm text-red-600">{errors.name}</p>}
               </div>
               
               <div>
-                <label className="block text-sm font-medium text-gray-700">説明</label>
+                <label className="block text-sm font-medium text-gray-700 mb-2">説明</label>
                 <textarea
                   value={editedRule.description}
                   onChange={(e) => setEditedRule({ ...editedRule, description: e.target.value })}
-                  className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm ${
-                    errors.description ? 'border-red-500' : ''
+                  className={`mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-3 ${
+                    errors.description ? 'border-red-500' : 'border border-gray-300'
                   }`}
-                  rows={3}
-                  placeholder="ルールの説明を入力"
+                  rows={4}
+                  placeholder="このルールの目的や処理内容の説明を入力してください"
                 />
                 {errors.description && <p className="mt-1 text-sm text-red-600">{errors.description}</p>}
               </div>
             </div>
 
-            <div className="space-y-4">
+            <div className="space-y-4 mt-6">
               <div>
-                <label className="block text-sm font-medium text-gray-700">Excelファイル</label>
-                <div className="mt-1 flex items-center space-x-4">
-                  {!workbook && (
-                    <input
-                      type="file"
-                      accept=".xlsx,.xls"
-                      onChange={handleFileChange}
-                      className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-md file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
-                    />
-                  )}
-                  {excelFile && (
-                    <span className="text-sm text-gray-500">{excelFile.name}</span>
+                <label className="block text-sm font-medium text-gray-700 mb-2">Excelファイル</label>
+                <div className="mt-1">
+                  {!workbook ? (
+                    <div
+                      className={`w-full py-6 px-4 border-2 border-dashed ${
+                        isDragOver ? 'border-blue-500 bg-blue-100' : 'border-blue-300 bg-blue-50'
+                      } rounded-md shadow-sm cursor-pointer hover:bg-blue-100 transition-colors`}
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setIsDragOver(true);
+                      }}
+                      onDragLeave={() => setIsDragOver(false)}
+                      onDrop={handleFileDrop}
+                      onClick={() => {
+                        const fileInput = document.getElementById('excel-file-input');
+                        if (fileInput) fileInput.click();
+                      }}
+                    >
+                      <div className="flex flex-col items-center justify-center">
+                        <FileSpreadsheet className={`h-12 w-12 ${isDragOver ? 'text-blue-600' : 'text-blue-500'} mb-2`} />
+                        <p className={`text-sm font-medium ${isDragOver ? 'text-blue-700' : 'text-blue-600'} mb-1`}>
+                          {isDragOver ? 'ドロップしてファイルをアップロード' : 'Excelファイルをドラッグ＆ドロップまたはクリック'}
+                        </p>
+                        <p className="text-xs text-center text-blue-400">
+                          .xlsx, .xls形式のファイルをサポートしています
+                        </p>
+                        <input
+                          id="excel-file-input"
+                          type="file"
+                          accept=".xlsx,.xls"
+                          onChange={handleFileChange}
+                          className="hidden"
+                        />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-center px-4 py-3 bg-blue-50 text-blue-700 rounded-md border border-blue-200 w-full">
+                      <FileSpreadsheet className="h-6 w-6 mr-2 text-blue-500" />
+                      <div className="flex-1">
+                        <span className="text-sm font-medium block">{excelFile?.name}</span>
+                        <span className="text-xs text-blue-500">{workbook.SheetNames.length}シート</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setExcelFile(null);
+                          setWorkbook(null);
+                          setSelectedSheet(null);
+                          setRuleEditorFile(null);
+                        }}
+                        className="text-blue-500 hover:text-blue-700 ml-2"
+                      >
+                        <X size={16} />
+                      </button>
+                    </div>
                   )}
                 </div>
               </div>
 
               {workbook && (
                 <div>
-                  <label className="block text-sm font-medium text-gray-700">シート選択</label>
-                  <select
-                    value={selectedSheet || ''}
-                    onChange={(e) => handleSheetChange(e.target.value)}
-                    className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm"
-                  >
-                    {workbook.SheetNames.map((name) => (
-                      <option key={name} value={name}>
-                        {name}
-                      </option>
-                    ))}
-                  </select>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">シート選択</label>
+                  <div className="relative">
+                    <select
+                      value={selectedSheet || ''}
+                      onChange={(e) => handleSheetChange(e.target.value)}
+                      className="mt-1 block w-full rounded-md border border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm appearance-none bg-white py-3 px-3 pr-8"
+                    >
+                      {workbook.SheetNames.map((name) => (
+                        <option key={name} value={name}>
+                          {name}
+                        </option>
+                      ))}
+                    </select>
+                    <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
+                      <ChevronDown size={16} />
+                    </div>
+                  </div>
                 </div>
               )}
-
-              {showPreview && workbook && selectedSheet && (
-                <div className="mt-4">
-                  <div className="flex items-center justify-between mb-2">
+              
+              {/* シートプレビュー */}
+              {workbook && selectedSheet && (
+                <div className="mt-4 border rounded-lg overflow-hidden bg-white">
+                  <div className="bg-gray-50 px-4 py-2 border-b flex justify-between items-center">
                     <h3 className="text-sm font-medium text-gray-700">シートプレビュー</h3>
-                    <button
-                      onClick={() => setShowPreview(false)}
-                      className="text-sm text-gray-500 hover:text-gray-700"
-                    >
-                      閉じる
-                    </button>
+                    <span className="text-xs text-gray-500">{selectedSheet}</span>
                   </div>
-                  <div className="border rounded-lg overflow-hidden">
+                  <div className="max-h-[300px] overflow-auto">
                     <SheetPreview
                       workbook={workbook}
                       sheetName={selectedSheet}
                       onSelectCell={(row, col) => {
-                        // セル選択時の処理（必要に応じて実装）
+                        console.log(`セル選択: ${row}, ${col}`);
                       }}
                     />
                   </div>
                 </div>
               )}
-            </div>
-
-            {/* 次へボタンを追加 */}
-            <div className="flex justify-end mt-6">
-              <button
-                onClick={handleNextStep}
-                className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-              >
-                次へ
-                <ChevronRight className="ml-2 h-4 w-4" />
-              </button>
             </div>
           </div>
         );
@@ -1689,15 +1832,6 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <button
-          onClick={onClose}
-          className="flex items-center text-gray-600 hover:text-gray-900"
-        >
-          <ArrowLeft className="h-5 w-5 mr-2" />
-          ルール管理に戻る
-        </button>
-      </div>
       {renderStepContent()}
     </div>
   );

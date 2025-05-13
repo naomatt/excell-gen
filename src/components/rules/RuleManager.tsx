@@ -418,6 +418,8 @@ const RuleManager: React.FC = () => {
             onSelectFolder={setSelectedFolderId}
             onMoveRuleToFolder={handleChangeRuleFolder}
             onEditRule={handleEditRule}
+            isSidebarOpen={isSidebarOpen}
+            onToggleSidebar={() => setIsSidebarOpen(!isSidebarOpen)}
           />
         </div>
       </div>
@@ -427,10 +429,11 @@ const RuleManager: React.FC = () => {
         <div className="flex justify-between items-center mb-6">
           <div className="flex items-center">
             <button 
-              className="mr-3 p-2 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded-md"
+              className="mr-3 p-2 flex items-center text-gray-600 hover:text-gray-800 hover:bg-gray-100 rounded-md transition-colors"
               onClick={() => setIsSidebarOpen(!isSidebarOpen)}
             >
-              <Folder size={20} />
+              <Folder size={18} className="mr-2" />
+              {isSidebarOpen ? 'フォルダを隠す' : 'フォルダを表示'}
             </button>
             <h1 className="text-2xl font-bold text-gray-900">
               {selectedFolderId === null 
@@ -500,7 +503,7 @@ const RuleManager: React.FC = () => {
               新しいルールを作成
             </button>
           </div>
-        ) :
+        ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredRules.map((rule, index) => (
               <div 
@@ -546,16 +549,16 @@ const RuleManager: React.FC = () => {
                       フィールド数: {rule.sheetRules.reduce((sum, sheet) => sum + sheet.mappingRules.length, 0)}
                     </span>
                   </div>
-                  <div className="flex space-x-2">
+                  <div className="flex space-x-1">
                     <button 
-                      className="flex-1 flex justify-center items-center px-3 py-2 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors"
+                      className="flex-1 flex justify-center items-center px-2 py-1.5 bg-blue-50 text-blue-600 rounded-md hover:bg-blue-100 transition-colors text-xs"
                       onClick={() => handleEditRule(rule)}
                     >
-                      <Edit size={14} className="mr-1" />
+                      <Edit size={12} className="mr-0.5" />
                       編集
                     </button>
                     <button 
-                      className="flex-1 flex justify-center items-center px-3 py-2 bg-gray-50 text-gray-600 rounded-md hover:bg-gray-100 transition-colors"
+                      className="flex-1 flex justify-center items-center px-2 py-1.5 bg-gray-50 text-gray-600 rounded-md hover:bg-gray-100 transition-colors text-xs"
                       onClick={async () => {
                         console.log("コピー処理を開始: ルールID=", rule.id);
                         
@@ -604,14 +607,14 @@ const RuleManager: React.FC = () => {
                         console.log("ファイル・シートマッピングを複製しました", rule.id, "→", newRule.id);
                       }}
                     >
-                      <Copy size={14} className="mr-1" />
+                      <Copy size={12} className="mr-0.5" />
                       複製
                     </button>
                     <button 
-                      className="flex justify-center items-center px-3 py-2 bg-red-50 text-red-600 rounded-md hover:bg-red-100 transition-colors"
+                      className="flex-1 flex justify-center items-center px-2 py-1.5 bg-red-50 text-red-600 rounded-md hover:bg-red-100 transition-colors text-xs"
                       onClick={() => setConfirmDelete(rule.id)}
                     >
-                      <Trash2 size={14} className="mr-1" />
+                      <Trash2 size={12} className="mr-0.5" />
                       削除
                     </button>
                   </div>
@@ -619,7 +622,7 @@ const RuleManager: React.FC = () => {
               </div>
             ))}
           </div>
-        }
+        )}
 
         {confirmDelete && (
           <div className="fixed inset-0 bg-black bg-opacity-30 flex items-center justify-center z-50">
