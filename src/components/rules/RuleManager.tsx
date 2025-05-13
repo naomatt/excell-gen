@@ -50,19 +50,24 @@ const RuleManager: React.FC = () => {
       localStorage.removeItem('selectedFolderId');
       console.log('選択フォルダIDをローカルストレージから削除（未分類を選択）');
     }
+    
+    // フォルダを再読み込み（フォルダ選択時に最新情報を取得）
+    loadFolders();
   }, [selectedFolderId]);
 
   // フォルダの読み込み
+  const loadFolders = async () => {
+    try {
+      const folderList = await getFolders();
+      console.log('フォルダ一覧を取得:', folderList);
+      setFolders(folderList);
+    } catch (error) {
+      console.error('フォルダの読み込みに失敗しました:', error);
+    }
+  };
+
+  // コンポーネントマウント時にフォルダを読み込む
   useEffect(() => {
-    const loadFolders = async () => {
-      try {
-        const folderList = await getFolders();
-        setFolders(folderList);
-      } catch (error) {
-        console.error('フォルダの読み込みに失敗しました:', error);
-      }
-    };
-    
     loadFolders();
   }, []);
 
@@ -71,7 +76,8 @@ const RuleManager: React.FC = () => {
     console.log("RuleManager rendered, rules count:", rules.length);
     console.log("Current rules:", rules.map(r => r.name));
     console.log("Selected folder:", selectedFolderId);
-  }, [rules, selectedFolderId]);
+    console.log("Available folders:", folders.map(f => ({ id: f.id, name: f.name })));
+  }, [rules, selectedFolderId, folders]);
 
   // フォルダで絞り込まれたルール一覧
   const filteredRules = React.useMemo(() => {
@@ -405,12 +411,13 @@ const RuleManager: React.FC = () => {
   return (
     <div className="flex h-full">
       {/* サイドバー（フォルダリスト） */}
-      <div className={`bg-white border-r border-gray-200 ${isSidebarOpen ? 'w-64' : 'w-0 overflow-hidden'}`}>
+      <div className={`bg-white border-r border-gray-200 ${isSidebarOpen ? 'w-80' : 'w-0 overflow-hidden'}`}>
         <div className="p-4">
           <FolderList 
             selectedFolderId={selectedFolderId} 
             onSelectFolder={setSelectedFolderId}
             onMoveRuleToFolder={handleChangeRuleFolder}
+            onEditRule={handleEditRule}
           />
         </div>
       </div>
@@ -427,8 +434,8 @@ const RuleManager: React.FC = () => {
             </button>
             <h1 className="text-2xl font-bold text-gray-900">
               {selectedFolderId === null 
-                ? '未分類のルール' 
-                : `${folders.find(f => f.id === selectedFolderId)?.name || 'フォルダ'}のルール`}
+                ? '未分類' 
+                : `${folders.find(f => f.id === selectedFolderId)?.name || 'フォルダ'}`}
             </h1>
           </div>
           <div className="flex space-x-2">
@@ -478,7 +485,7 @@ const RuleManager: React.FC = () => {
             <Info className="h-12 w-12 text-blue-400 mx-auto mb-4" />
             <h3 className="text-lg font-medium text-gray-900 mb-2">
               {selectedFolderId === null 
-                ? '未分類のルールがありません' 
+                ? '未分類にルールがありません' 
                 : 'このフォルダにはルールがありません'}
             </h3>
             <p className="text-gray-600 mb-6">

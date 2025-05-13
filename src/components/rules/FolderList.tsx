@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Folder, FilePlus, Edit, Trash2, ChevronRight, ChevronDown, Check, X, RefreshCw } from 'lucide-react';
+import { Folder, FilePlus, Edit, Trash2, ChevronRight, ChevronDown, Check, X, RefreshCw, FileText } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
-import { RuleFolder } from '../../types';
+import { RuleFolder, ExcelRule } from '../../types';
 import { getFolders, addFolder, updateFolder, deleteFolder } from '../../services/folderService';
 import { toast } from 'react-hot-toast';
 
@@ -9,12 +9,14 @@ interface FolderListProps {
   selectedFolderId: string | null;
   onSelectFolder: (folderId: string | null) => void;
   onMoveRuleToFolder?: (ruleId: string, folderId: string | null) => Promise<boolean>;
+  onEditRule?: (rule: ExcelRule) => void;
 }
 
 const FolderList: React.FC<FolderListProps> = ({ 
   selectedFolderId, 
   onSelectFolder,
-  onMoveRuleToFolder 
+  onMoveRuleToFolder,
+  onEditRule
 }) => {
   const [folders, setFolders] = useState<RuleFolder[]>([]);
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
@@ -26,6 +28,9 @@ const FolderList: React.FC<FolderListProps> = ({
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+  
+  // 未分類フォルダの展開状態
+  const [isUncategorizedExpanded, setIsUncategorizedExpanded] = useState(false);
   
   const { rules, isOnline } = useAppContext();
   
@@ -41,6 +46,33 @@ const FolderList: React.FC<FolderListProps> = ({
     
     return counts;
   }, [rules]);
+  
+  // フォルダごとのルールを取得
+  const folderRules = React.useMemo(() => {
+    const rulesMap: Record<string, ExcelRule[]> = {
+      uncategorized: []
+    };
+    
+    folders.forEach(folder => {
+      rulesMap[folder.id] = [];
+    });
+    
+    // ルールをフォルダごとに分類
+    rules.forEach(rule => {
+      if (rule.folderId) {
+        if (rulesMap[rule.folderId]) {
+          rulesMap[rule.folderId].push(rule);
+        }
+      } else {
+        rulesMap.uncategorized.push(rule);
+      }
+    });
+    
+    return rulesMap;
+  }, [rules, folders]);
+  
+  // ドラッグ中のルールID
+  const [draggedRuleId, setDraggedRuleId] = useState<string | null>(null);
   
   // フォルダ一覧を取得
   const loadFolders = async () => {
@@ -74,6 +106,11 @@ const FolderList: React.FC<FolderListProps> = ({
       ...prev,
       [folderId]: !prev[folderId]
     }));
+  };
+  
+  // 未分類フォルダの展開/折りたたみを切り替え
+  const toggleUncategorized = () => {
+    setIsUncategorizedExpanded(prev => !prev);
   };
   
   // 新規フォルダの作成
@@ -281,7 +318,33 @@ const FolderList: React.FC<FolderListProps> = ({
     }
   };
   
+  // ドラッグ開始時の処理
+  const handleRuleDragStart = (e: React.DragEvent<HTMLDivElement>, rule: ExcelRule) => {
+    e.stopPropagation();
+    console.log("ドラッグ開始: ルールID=", rule.id);
+    setDraggedRuleId(rule.id);
+    e.dataTransfer.setData('application/rule', rule.id);
+    e.dataTransfer.effectAllowed = 'move';
+    
+    // ドラッグ中は全てのルールアイテムのカーソルをgrabに変更
+    const ruleItems = document.querySelectorAll('.rule-item');
+    ruleItems.forEach(item => {
+      (item as HTMLElement).style.cursor = 'grabbing';
+    });
+  };
+  
   // ドラッグ終了時の処理
+  const handleRuleDragEnd = () => {
+    setDraggedRuleId(null);
+    
+    // カーソルを元に戻す
+    const ruleItems = document.querySelectorAll('.rule-item');
+    ruleItems.forEach(item => {
+      (item as HTMLElement).style.cursor = '';
+    });
+  };
+  
+  // ドラッグ離脱時の処理
   const handleDragLeave = () => {
     setDragOverFolderId(null);
   };
@@ -321,26 +384,71 @@ const FolderList: React.FC<FolderListProps> = ({
       )}
       
       {/* 未分類フォルダ（常に表示） */}
-      <div 
-        className={`flex items-center py-1.5 px-2 rounded-md cursor-pointer ${
-          selectedFolderId === null ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-100'
-        } ${dragOverFolderId === null ? 'border-2 border-dashed border-blue-400 bg-blue-50' : ''}`}
-        onClick={() => onSelectFolder(null)}
-        onDragOver={(e) => handleDragOver(e, null)}
-        onDragLeave={handleDragLeave}
-        onDrop={(e) => handleDrop(e, null)}
-      >
-        <Folder size={16} className="mr-2 text-gray-400" />
-        <span className="flex-1">未分類</span>
-        <span className="text-xs text-gray-500 bg-gray-100 rounded-full px-2 py-0.5">
-          {folderRuleCounts['uncategorized'] || 0}
-        </span>
+      <div className="space-y-0.5">
+        <div className="flex items-center">
+          <button 
+            className="p-1 text-gray-400 hover:text-gray-600" 
+            onClick={toggleUncategorized}
+          >
+            {isUncategorizedExpanded ? (
+              <ChevronDown size={14} />
+            ) : (
+              <ChevronRight size={14} />
+            )}
+          </button>
+          
+          <div 
+            className={`flex-1 flex items-center py-1 px-2 rounded-md cursor-pointer ${
+              selectedFolderId === null ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-100'
+            } ${dragOverFolderId === null ? 'border-2 border-dashed border-blue-400 bg-blue-50' : ''}`}
+            onClick={() => onSelectFolder(null)}
+            onDragOver={(e) => handleDragOver(e, null)}
+            onDragLeave={handleDragLeave}
+            onDrop={(e) => handleDrop(e, null)}
+          >
+            <Folder size={16} className="mr-2 text-gray-400" />
+            <span className="flex-1">未分類</span>
+            <span className="text-xs text-gray-500 bg-gray-100 rounded-full px-2 py-0.5">
+              {folderRuleCounts['uncategorized'] || 0}
+            </span>
+          </div>
+        </div>
+        
+        {/* 未分類フォルダ内のルール */}
+        {isUncategorizedExpanded && (
+          <div className="ml-7 space-y-1 my-1">
+            {folderRules.uncategorized.length > 0 ? (
+              folderRules.uncategorized.map(rule => (
+                <div 
+                  key={rule.id}
+                  className={`flex items-center py-1 px-2 text-sm text-gray-600 hover:bg-gray-100 rounded cursor-pointer rule-item ${
+                    draggedRuleId === rule.id ? 'opacity-50 bg-blue-50' : ''
+                  }`}
+                  onClick={() => {
+                    onSelectFolder(null);
+                    if (onEditRule) onEditRule(rule);
+                  }}
+                  draggable
+                  onDragStart={(e) => handleRuleDragStart(e, rule)}
+                  onDragEnd={handleRuleDragEnd}
+                >
+                  <FileText size={14} className="flex-shrink-0 mr-2 text-gray-400" />
+                  <span className="truncate flex-1 mr-1">{rule.name}</span>
+                </div>
+              ))
+            ) : (
+              <div className="text-xs text-gray-500 italic py-1 px-2">
+                ルールがありません
+              </div>
+            )}
+          </div>
+        )}
       </div>
       
       {/* フォルダ一覧 */}
       <div className="space-y-1">
         {folders.map(folder => (
-          <div key={folder.id} className="space-y-1">
+          <div key={folder.id} className="space-y-0.5">
             <div className="flex items-center">
               <button 
                 className="p-1 text-gray-400 hover:text-gray-600" 
@@ -450,6 +558,36 @@ const FolderList: React.FC<FolderListProps> = ({
                 </>
               )}
             </div>
+            
+            {/* フォルダ内のルール一覧 */}
+            {expandedFolders[folder.id] && (
+              <div className="ml-7 space-y-1 my-1">
+                {folderRules[folder.id]?.length > 0 ? (
+                  folderRules[folder.id].map(rule => (
+                    <div 
+                      key={rule.id}
+                      className={`flex items-center py-1 px-2 text-sm text-gray-600 hover:bg-gray-100 rounded cursor-pointer rule-item ${
+                        draggedRuleId === rule.id ? 'opacity-50 bg-blue-50' : ''
+                      }`}
+                      onClick={() => {
+                        onSelectFolder(folder.id);
+                        if (onEditRule) onEditRule(rule);
+                      }}
+                      draggable
+                      onDragStart={(e) => handleRuleDragStart(e, rule)}
+                      onDragEnd={handleRuleDragEnd}
+                    >
+                      <FileText size={14} className="flex-shrink-0 mr-2 text-gray-400" />
+                      <span className="truncate flex-1 mr-1">{rule.name}</span>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-xs text-gray-500 italic py-1 px-2">
+                    ルールがありません
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         ))}
       </div>
