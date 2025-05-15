@@ -7,6 +7,12 @@ import FolderList from './FolderList';
 import { Plus, Edit, Trash2, Copy, Calendar, Info, RefreshCw, GripVertical, Folder } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
 import { getFolders } from '../../services/folderService';
+import { supabase } from '../../lib/supabaseClient'; // Supabaseクライアントを直接インポート
+
+// テーブル名の定数（直接Supabaseに接続する場合に使用）
+const EXCEL_RULES_TABLE = 'excel_rules';
+const SHEET_RULES_TABLE = 'excel_sheet_rules';
+const MAPPING_RULES_TABLE = 'excel_mapping_rules';
 
 const RuleManager: React.FC = () => {
   const navigate = useNavigate();
@@ -288,14 +294,20 @@ const RuleManager: React.FC = () => {
 
   // ルールをコピーする関数
   const deepCopyRule = (rule: ExcelRule): ExcelRule => {
-    console.log("コピー元のルール:", JSON.stringify(rule, null, 2));
+    console.log("コピー元のルール詳細:", {
+      id: rule.id,
+      name: rule.name,
+      folderId: rule.folderId,
+      folder_id: (rule as any).folder_id,
+      sheetRulesCount: rule.sheetRules.length
+    });
     
     // 新しいルールを作成
     const newRule: ExcelRule = {
       id: crypto.randomUUID(),
       name: `${rule.name}のコピー`,
       description: rule.description,
-      folderId: rule.folderId, // フォルダIDもコピー
+      folderId: rule.folderId, // フォルダIDを明示的にコピー元から継承
       sheetRules: rule.sheetRules.map((sheetRule, index) => {
         console.log("コピーするシートルール:", JSON.stringify(sheetRule, null, 2));
         
@@ -396,7 +408,19 @@ const RuleManager: React.FC = () => {
       updatedAt: new Date().toISOString()
     };
 
-    console.log("生成された新しいルール:", JSON.stringify(newRule, null, 2));
+    // DB向けに明示的にfolder_idも設定（データベーススキーマでの列名）
+    if (rule.folderId) {
+      (newRule as any).folder_id = rule.folderId;
+      console.log(`フォルダIDをDBスキーマ用に設定: ${(newRule as any).folder_id}`);
+    }
+
+    console.log("生成された新しいルール:", {
+      id: newRule.id,
+      name: newRule.name,
+      folderId: newRule.folderId,
+      folder_id: (newRule as any).folder_id,
+      sheetRulesCount: newRule.sheetRules.length
+    });
     return newRule;
   };
 
@@ -560,51 +584,150 @@ const RuleManager: React.FC = () => {
                     <button 
                       className="flex-1 flex justify-center items-center px-2 py-1.5 bg-gray-50 text-gray-600 rounded-md hover:bg-gray-100 transition-colors text-xs"
                       onClick={async () => {
-                        console.log("コピー処理を開始: ルールID=", rule.id);
-                        
-                        // マッピングルールの詳細をログ出力
-                        const origMappingDetails = rule.sheetRules.flatMap(sr => 
-                          sr.mappingRules.map(mr => ({
-                            name: mr.name,
-                            sourceType: mr.sourceType,
-                            hasCell: !!mr.cell,
-                            cell: mr.cell,
-                            hasRange: !!mr.range,
-                            range: mr.range,
-                            hasFormula: !!mr.formula,
-                            formula: mr.formula,
-                            direct_value: mr.direct_value
-                          }))
-                        );
-                        console.log("コピー元マッピングルールの詳細:", origMappingDetails);
-                        
-                        // 完全にコピーしたルールを作成
-                        const newRule = deepCopyRule(rule);
-                        console.log("複製したルール:", newRule.name);
-                        
-                        // コピー後のマッピングルールの詳細をログ出力
-                        const newMappingDetails = newRule.sheetRules.flatMap(sr => 
-                          sr.mappingRules.map(mr => ({
-                            name: mr.name,
-                            sourceType: mr.sourceType,
-                            hasCell: !!mr.cell,
-                            cell: mr.cell,
-                            hasRange: !!mr.range,
-                            range: mr.range,
-                            hasFormula: !!mr.formula,
-                            formula: mr.formula,
-                            direct_value: mr.direct_value
-                          }))
-                        );
-                        console.log("コピー後マッピングルールの詳細:", newMappingDetails);
-
-                        // 新しいルールを追加
-                        await appAddRule(newRule);
-                        console.log("新しいルールを追加しました:", newRule.id);
-                        
-                        // ファイル・シートマッピングもコピー
-                        copyRuleWithFileMapping(rule.id, newRule.id);
-                        console.log("ファイル・シートマッピングを複製しました", rule.id, "→", newRule.id);
+                        try {
+                          console.log("--------- コピー処理開始 ---------");
+                          console.log("コピー処理を開始: ルールID=", rule.id);
+                          
+                          // コピー元のフォルダIDを保存（明示的に取得）
+                          const origFolderId = rule.folderId;
+                          console.log(`コピー元のフォルダID: ${origFolderId || 'null (未分類)'}`);
+                          
+                          // 完全にコピーしたルールを作成
+                          const newRule = deepCopyRule(rule);
+                          
+                          // フォルダIDが正しくコピーされていることを確認
+                          console.log(`複製したルール: ${newRule.name}, 元のフォルダID: ${origFolderId || 'null'}, コピー後のフォルダID: ${newRule.folderId || 'null'}`);
+                          
+                          // DBエンティティ用にフォルダIDを明示的に設定
+                          if (origFolderId) {
+                            console.log("フォルダIDを明示的に設定します:", origFolderId);
+                            newRule.folderId = origFolderId;
+                            // DB向けに明示的に設定（データベーススキーマではfolder_idなので）
+                            (newRule as any).folder_id = origFolderId;
+                          } else {
+                            // 未分類の場合は明示的にnullをセット
+                            console.log("未分類なので、フォルダIDをnullに設定します");
+                            newRule.folderId = null;
+                            (newRule as any).folder_id = null;
+                          }
+                          
+                          console.log("追加前の最終確認:", {
+                            ruleName: newRule.name,
+                            ruleId: newRule.id,
+                            folderId: newRule.folderId,
+                            folder_id: (newRule as any).folder_id
+                          });
+                          
+                          // 新しいルールを追加（フォルダIDの問題を解決するため直接Supabaseに接続）
+                          try {
+                            console.log("直接Supabaseを使用してルールを追加します...");
+                            // 1. メインルールを追加
+                            const { data: mainRule, error: mainError } = await supabase
+                              .from(EXCEL_RULES_TABLE)
+                              .insert({
+                                id: newRule.id,
+                                name: newRule.name,
+                                description: newRule.description,
+                                folder_id: origFolderId, // 明示的にfolder_idを設定
+                                created_at: new Date().toISOString(),
+                                updated_at: new Date().toISOString()
+                              })
+                              .select()
+                              .single();
+                              
+                            if (mainError) {
+                              console.error("メインルール作成エラー:", mainError);
+                              throw mainError;
+                            }
+                            console.log("メインルールを作成しました:", mainRule);
+                            
+                            // 2. シートルールを追加
+                            for (const sheetRule of newRule.sheetRules) {
+                              const { error: sheetError } = await supabase
+                                .from(SHEET_RULES_TABLE)
+                                .insert({
+                                  id: sheetRule.id,
+                                  rule_id: newRule.id,
+                                  name: sheetRule.name,
+                                  sheet_index: sheetRule.sheetIndex
+                                });
+                                
+                              if (sheetError) {
+                                console.error("シートルール作成エラー:", sheetError);
+                                throw sheetError;
+                              }
+                              
+                              // 3. マッピングルールを追加
+                              for (const mappingRule of sheetRule.mappingRules) {
+                                const mappingData = {
+                                  id: mappingRule.id,
+                                  sheet_rule_id: sheetRule.id,
+                                  name: mappingRule.name,
+                                  target_field: mappingRule.targetField,
+                                  source_type: mappingRule.sourceType,
+                                  // 条件付きフィールド
+                                  ...(mappingRule.cell && { 
+                                    cell: typeof mappingRule.cell === 'string' 
+                                      ? mappingRule.cell 
+                                      : JSON.stringify(mappingRule.cell) 
+                                  }),
+                                  ...(mappingRule.range && { 
+                                    range: typeof mappingRule.range === 'string' 
+                                      ? mappingRule.range 
+                                      : JSON.stringify(mappingRule.range) 
+                                  }),
+                                  ...(mappingRule.formula && { formula: mappingRule.formula }),
+                                  ...(mappingRule.direct_value !== undefined && { direct_value: mappingRule.direct_value }),
+                                  ...(mappingRule.defaultValue !== undefined && { default_value: mappingRule.defaultValue }),
+                                  ...(mappingRule.conditions && { 
+                                    conditions: typeof mappingRule.conditions === 'string' 
+                                      ? mappingRule.conditions 
+                                      : JSON.stringify(mappingRule.conditions) 
+                                  })
+                                };
+                                
+                                const { error: mappingError } = await supabase
+                                  .from(MAPPING_RULES_TABLE)
+                                  .insert(mappingData);
+                                  
+                                if (mappingError) {
+                                  console.error("マッピングルール作成エラー:", mappingError);
+                                  throw mappingError;
+                                }
+                              }
+                            }
+                            
+                            console.log("ルールとすべての関連データを作成しました");
+                            
+                            // ファイル・シートマッピングもコピー
+                            await copyRuleWithFileMapping(rule.id, newRule.id);
+                            console.log("ファイル・シートマッピングを複製しました", rule.id, "→", newRule.id);
+                            
+                          } catch (dbError) {
+                            console.error("データベース操作でエラーが発生しました:", dbError);
+                            throw new Error("ルールの追加に失敗しました: " + (dbError as Error).message);
+                          }
+                          
+                          // 全てのルールを再読み込み
+                          console.log("ルールを再読み込みします...");
+                          await refreshRules();
+                          
+                          // 元のルールと同じフォルダを選択して表示を更新
+                          if (origFolderId) {
+                            console.log("コピー元と同じフォルダを選択:", origFolderId);
+                            setSelectedFolderId(origFolderId);
+                          } else {
+                            console.log("コピー元が未分類のため、未分類を選択");
+                            setSelectedFolderId(null);
+                          }
+                          
+                          // 成功メッセージを表示
+                          toast.success('ルールを複製しました');
+                          console.log("--------- コピー処理完了 ---------");
+                        } catch (error) {
+                          console.error("ルールのコピー中にエラーが発生しました:", error);
+                          toast.error('ルールの複製に失敗しました');
+                        }
                       }}
                     >
                       <Copy size={12} className="mr-0.5" />

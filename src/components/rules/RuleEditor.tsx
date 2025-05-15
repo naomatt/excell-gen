@@ -515,6 +515,21 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
               </div>
             </div>
           )}
+
+          {/* フィールド確定ボタン */}
+          <div className="mt-4 flex justify-end">
+            <button
+              type="button"
+              onClick={() => toggleFieldConfirmation(idx)}
+              className={`px-4 py-2 rounded-md text-sm font-medium ${
+                confirmedFields[idx]
+                  ? 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                  : 'bg-green-600 text-white hover:bg-green-700'
+              } transition-colors duration-200`}
+            >
+              {confirmedFields[idx] ? '編集する' : 'フィールドを確定する'}
+            </button>
+          </div>
         </div>
       );
     }
@@ -851,7 +866,7 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
                       </p>
                     )}
                   </div>
-                  <div className="max-h-[300px]">
+                  <div className="overflow-auto" style={{ maxHeight: '500px' }}>
                     <SheetPreview
                       workbook={workbook}
                       sheetName={selectedSheet}
@@ -1284,7 +1299,7 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
   // 範囲選択を更新する関数
   const updateRangeSelection = (index: number, startRow: number, startCol: number, endRow: number, endCol: number) => {
     handleUpdateHeader(index, {
-      range: {
+                              range: {
         startRow: startRow + 1,
         startColumn: startCol + 1,
         endRow: endRow + 1,
@@ -1495,8 +1510,8 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
                   placeholder="このルールの目的や処理内容の説明を入力してください"
                 />
                 {errors.description && <p className="mt-1 text-sm text-red-600">{errors.description}</p>}
-              </div>
-            </div>
+                  </div>
+                </div>
 
             <div className="space-y-4 mt-6">
               <div>
@@ -1542,8 +1557,8 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
                         <span className="text-sm font-medium block">{excelFile?.name}</span>
                         <span className="text-xs text-blue-500">{workbook.SheetNames.length}シート</span>
                       </div>
-                      <button
-                        type="button"
+                  <button
+                    type="button"
                         onClick={() => {
                           setExcelFile(null);
                           setWorkbook(null);
@@ -1553,7 +1568,7 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
                         className="text-blue-500 hover:text-blue-700 ml-2"
                       >
                         <X size={16} />
-                      </button>
+                  </button>
                     </div>
                   )}
                 </div>
@@ -1577,9 +1592,9 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
                     <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-700">
                       <ChevronDown size={16} />
                     </div>
-                  </div>
                 </div>
-              )}
+              </div>
+            )}
               
               {/* シートプレビュー */}
               {workbook && selectedSheet && (
@@ -1588,7 +1603,7 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
                     <h3 className="text-sm font-medium text-gray-700">シートプレビュー</h3>
                     <span className="text-xs text-gray-500">{selectedSheet}</span>
                   </div>
-                  <div className="max-h-[300px] overflow-auto">
+                  <div className="overflow-auto" style={{ maxHeight: '500px' }}>
                     <SheetPreview
                       workbook={workbook}
                       sheetName={selectedSheet}
@@ -1676,20 +1691,20 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
                             {/* 取得内容のプレビュー */}
                             <div className="mt-2 p-2 bg-gray-50 border border-gray-200 rounded">
                               <div className="text-xs text-gray-500 mb-1">取得内容:</div>
-                              <div className="text-sm text-gray-700">
+                              <div className="text-sm text-gray-700 break-words overflow-hidden">
                                 {header.sourceType === 'cell' && !header.range && header.cell ? (
                                   <div>
                                     <p>セル: {numberToColumnLetter(header.cell.column)}{header.cell.row}</p>
-                                    <p className="mt-1 text-blue-600">取得値: {getCellContent(header)}</p>
+                                    <p className="mt-1 text-blue-600 break-all">{getCellContent(header)}</p>
                                   </div>
                                 ) : header.range ? (
                                   <div>
                                     <p>範囲: {getRangeDisplay(header)}</p>
-                                    <p className="mt-1 text-blue-600">取得値: {getCellContent(header)}</p>
+                                    <p className="mt-1 text-blue-600 break-all">{getCellContent(header)}</p>
                                   </div>
                                 ) : header.sourceType === 'direct' ? (
                                   <div>
-                                    <p>直接入力値: {header.directValue !== undefined ? header.directValue : '(未入力)'}</p>
+                                    <p>直接入力値: <span className="break-all">{header.directValue !== undefined ? header.directValue : '(未入力)'}</span></p>
                                   </div>
                                 ) : (
                                   <p className="text-gray-500">入力方法を選択してください</p>
@@ -1713,8 +1728,8 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
                               })}
                               placeholder="例: customer_name, price など"
                             />
-                          </>
-                        )}
+          </>
+        )}
                       </div>
                     </div>
                     <div className="flex items-center">
@@ -1825,8 +1840,8 @@ const RuleEditor: React.FC<RuleEditorProps> = ({ rule, onClose }): JSX.Element =
                 ルールを確定する
               </button>
             </div>
-          </div>
-        );
+      </div>
+    );
     }
   };
 

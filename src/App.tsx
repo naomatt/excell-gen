@@ -11,6 +11,21 @@ const AppContent: React.FC = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = React.useState<'dashboard' | 'rules' | 'process'>('dashboard');
 
+  // URLパスに基づいてアクティブタブを設定する
+  React.useEffect(() => {
+    // 現在のパスを取得
+    const path = window.location.pathname;
+    
+    // パスに基づいてアクティブタブを設定
+    if (path.startsWith('/rules')) {
+      setActiveTab('rules');
+    } else if (path.startsWith('/process')) {
+      setActiveTab('process');
+    } else {
+      setActiveTab('dashboard');
+    }
+  }, [window.location.pathname]);
+
   const handleTabChange = (tab: 'dashboard' | 'rules' | 'process') => {
     setActiveTab(tab);
     switch (tab) {

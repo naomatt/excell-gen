@@ -1,12 +1,15 @@
 import React, { useState } from 'react';
-import { FileUp, Settings, FilePlus2, Check, AlertTriangle, Download, ExternalLink } from 'lucide-react';
+import { FileUp, Settings, FilePlus2, Check, AlertTriangle, Download, ExternalLink, ChevronRight, ChevronDown, Folder } from 'lucide-react';
 import { useAppContext } from '../../context/AppContext';
-import { ProcessingResult } from '../../types';
+import { ProcessingResult, RuleFolder, ExcelRule } from '../../types';
 import ResultsViewer from './ResultsViewer';
 import { processExcelFile, readExcelFile } from '../../utils/excelProcessor';
 import SheetPreview from './SheetPreview';
 import { WorkBook } from 'xlsx';
 import * as XLSX from 'xlsx';
+import { getFolders } from '../../services/folderService';
+import { toast } from 'react-hot-toast';
+import { useNavigate } from 'react-router-dom';
 
 interface ExcelFileData {
   workbook: WorkBook;
@@ -14,6 +17,8 @@ interface ExcelFileData {
 }
 
 const FileProcessor: React.FC = () => {
+  const navigate = useNavigate();
+  
   const { 
     rules, 
     currentFile, setCurrentFile,
@@ -27,12 +32,150 @@ const FileProcessor: React.FC = () => {
   const [batchResults, setBatchResults] = useState<ProcessingResult[]>([]);
   const [batchProgress, setBatchProgress] = useState({ current: 0, total: 0 });
   
+  // フォルダ関連の状態を追加
+  const [folders, setFolders] = useState<RuleFolder[]>([]);
+  const [selectedFolderId, setSelectedFolderId] = useState<string | null>(null);
+  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({});
+  const [isUncategorizedExpanded, setIsUncategorizedExpanded] = useState(false);
+  const [isFoldersLoading, setIsFoldersLoading] = useState(false);
+  
   const [processingStep, setProcessingStep] = useState<'upload' | 'selectRule' | 'process' | 'results' | 'batchResults'>('upload');
   const [isProcessing, setIsProcessing] = useState(false);
   const [result, setResult] = useState<ProcessingResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [excelData, setExcelData] = useState<ExcelFileData | null>(null);
   const [selectedSheet, setSelectedSheet] = useState<string | null>(null);
+
+  // ルール選択ハンドラーを修正（単一選択と複数選択の両方に対応）
+  const handleSelectRule = (ruleId: string, isMultiSelect = false) => {
+    // フォルダ選択をクリア
+    setSelectedFolderId(null);
+    
+    if (isMultiSelect) {
+      // 複数選択モード
+      setSelectedRuleIds(prev => {
+        if (prev.includes(ruleId)) {
+          return prev.filter(id => id !== ruleId);
+        } else {
+          return [...prev, ruleId];
+        }
+      });
+    } else {
+      // 単一選択モード
+      setSelectedRuleId(ruleId);
+      // 単一選択時は複数選択リストも更新
+      setSelectedRuleIds([ruleId]);
+    }
+  };
+  
+  // フォルダ選択ハンドラーを追加
+  const handleSelectFolder = (folderId: string | null) => {
+    setSelectedFolderId(folderId);
+    
+    // フォルダが選択された場合、そのフォルダ内のルールをすべて選択
+    if (folderId === null) {
+      // 未分類フォルダの場合
+      const uncategorizedRuleIds = rules
+        .filter(rule => !rule.folderId)
+        .map(rule => rule.id);
+      setSelectedRuleIds(uncategorizedRuleIds);
+    } else {
+      // 通常のフォルダの場合
+      const folderRuleIds = rules
+        .filter(rule => rule.folderId === folderId)
+        .map(rule => rule.id);
+      setSelectedRuleIds(folderRuleIds);
+    }
+    
+    // 複数選択モードに切り替える
+    setIsBatchProcessing(true);
+    
+    // 単一選択をクリア
+    setSelectedRuleId(null);
+  };
+  
+  // フォルダの展開/折りたたみを切り替え
+  const toggleFolder = (folderId: string) => {
+    setExpandedFolders(prev => ({
+      ...prev,
+      [folderId]: !prev[folderId]
+    }));
+  };
+  
+  // 未分類フォルダの展開/折りたたみを切り替え
+  const toggleUncategorized = () => {
+    setIsUncategorizedExpanded(prev => !prev);
+  };
+
+  // フォルダ内の特定ルールを選択/解除するハンドラーを追加
+  const toggleFolderRuleSelection = (ruleId: string) => {
+    setSelectedRuleIds(prev => {
+      if (prev.includes(ruleId)) {
+        return prev.filter(id => id !== ruleId);
+      } else {
+        return [...prev, ruleId];
+      }
+    });
+  };
+  
+  // フォルダ一覧を取得
+  const loadFolders = async () => {
+    setIsFoldersLoading(true);
+    try {
+      const folderList = await getFolders();
+      setFolders(folderList);
+      
+      // 初期状態ですべてのフォルダを展開
+      const expanded: Record<string, boolean> = {};
+      folderList.forEach(folder => {
+        expanded[folder.id] = true;
+      });
+      setExpandedFolders(expanded);
+      setIsUncategorizedExpanded(true);
+    } catch (error) {
+      console.error('フォルダの取得に失敗しました:', error);
+      toast.error('フォルダの読み込みに失敗しました');
+    } finally {
+      setIsFoldersLoading(false);
+    }
+  };
+
+  // フォルダごとのルールを取得
+  const folderRules = React.useMemo(() => {
+    const rulesMap: Record<string, ExcelRule[]> = {
+      uncategorized: []
+    };
+    
+    folders.forEach(folder => {
+      rulesMap[folder.id] = [];
+    });
+    
+    // ルールをフォルダごとに分類
+    rules.forEach(rule => {
+      if (rule.folderId) {
+        if (rulesMap[rule.folderId]) {
+          rulesMap[rule.folderId].push(rule);
+        }
+      } else {
+        rulesMap.uncategorized.push(rule);
+      }
+    });
+    
+    return rulesMap;
+  }, [rules, folders]);
+  
+  // フォルダごとのルール数をカウント
+  const folderRuleCounts = React.useMemo(() => {
+    const counts: Record<string, number> = {};
+    
+    // folderId別にルールをカウント
+    rules.forEach(rule => {
+      const folderId = rule.folderId || 'uncategorized';
+      counts[folderId] = (counts[folderId] || 0) + 1;
+    });
+    
+    return counts;
+  }, [rules]);
 
   // ファイルアップロード処理
   const handleFileUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -54,30 +197,14 @@ const FileProcessor: React.FC = () => {
           setSelectedSheet(sheets[0].name);
         }
         
+        // フォルダ一覧を読み込む
+        await loadFolders();
+        
         setProcessingStep('selectRule');
       } catch (err) {
         setError(err instanceof Error ? err.message : 'ファイルの読み込みに失敗しました');
         setCurrentFile(null);
       }
-    }
-  };
-
-  // ルール選択ハンドラーを修正（単一選択と複数選択の両方に対応）
-  const handleSelectRule = (ruleId: string, isMultiSelect = false) => {
-    if (isMultiSelect) {
-      // 複数選択モード
-      setSelectedRuleIds(prev => {
-        if (prev.includes(ruleId)) {
-          return prev.filter(id => id !== ruleId);
-        } else {
-          return [...prev, ruleId];
-        }
-      });
-    } else {
-      // 単一選択モード
-      setSelectedRuleId(ruleId);
-      // 単一選択時は複数選択リストも更新
-      setSelectedRuleIds([ruleId]);
     }
   };
 
@@ -217,6 +344,16 @@ const FileProcessor: React.FC = () => {
     setExcelData(null);
     setSelectedSheet(null);
     setProcessingStep('upload');
+  };
+
+  // ルール管理画面への遷移（フォルダ指定なし）
+  const navigateToRules = () => {
+    navigate('/rules');
+  };
+  
+  // ルール管理画面への遷移（フォルダ指定あり）
+  const navigateToRulesWithFolder = (folderId: string) => {
+    navigate(`/rules?folder=${folderId}`);
   };
 
   // 一括処理結果の表示
@@ -389,166 +526,283 @@ const FileProcessor: React.FC = () => {
         
       case 'selectRule':
         return (
-          <div className="space-y-6">
-            <div className="bg-white rounded-lg shadow p-6">
-              <div className="flex items-center justify-between mb-6">
-                <h2 className="text-xl font-bold text-gray-900">処理ルールの選択</h2>
-                <div className="flex items-center text-sm text-gray-600">
-                  <FileUp className="h-4 w-4 mr-1" />
-                  <span>ファイル: {currentFile?.name}</span>
-                  <button 
-                    className="ml-3 text-blue-600 hover:text-blue-800"
-                    onClick={handleReset}
-                  >
-                    変更
-                  </button>
-                </div>
-              </div>
-
-              {/* シートプレビュー */}
-              {excelData && selectedSheet && (
-                <div className="mb-6">
-                  <h3 className="text-lg font-medium text-gray-900 mb-3">シートプレビュー</h3>
-                  <SheetPreview
-                    workbook={excelData.workbook}
-                    sheetName={selectedSheet}
-                    selectedCells={[]}
-                    onSelectCell={(row, col) => {
-                      console.log(`Selected cell: ${row}, ${col}`);
-                    }}
-                  />
-                </div>
-              )}
-
-              {/* シート選択 */}
-              {excelData && excelData.workbook && (
-                <div className="mb-6">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">
-                    シートを選択
-                  </label>
-                  <select
-                    className="w-full p-2 border border-gray-300 rounded-md"
-                    value={selectedSheet || ''}
-                    onChange={(e) => setSelectedSheet(e.target.value)}
-                  >
-                    {excelData.workbook.SheetNames.length === 0 && (
-                      <option value="">有効なシートがありません</option>
-                    )}
-                    {excelData.workbook.SheetNames.map((sheetName, index) => (
-                      <option key={index} value={sheetName}>
-                        {sheetName}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              
-              {rules.length === 0 ? (
-                <div className="text-center py-8 bg-gray-50 rounded-md">
-                  <Settings className="h-10 w-10 text-gray-400 mx-auto mb-2" />
-                  <p className="text-gray-600 mb-4">ルールが作成されていません</p>
-                  <button
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
-                    onClick={() => {
-                      // ルール管理画面への遷移処理
-                    }}
-                  >
-                    ルールを作成
-                  </button>
-                </div>
-              ) : (
-                <div>
-                  {/* バッチ処理モード切り替え */}
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-medium">ルール一覧</h3>
-                    <div className="flex items-center">
-                      <label className="flex items-center text-sm">
-                        <input
-                          type="checkbox"
-                          className="mr-2"
-                          checked={isBatchProcessing}
-                          onChange={(e) => setIsBatchProcessing(e.target.checked)}
-                        />
-                        複数ルールを選択
-                      </label>
+          <div className="bg-white rounded-lg shadow p-6">
+            <h2 className="text-xl font-bold text-gray-900 mb-6">処理するルールの選択</h2>
+            
+            {excelData && (
+              <div className="mb-6">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  シートの選択
+                </label>
+                <select
+                  className="w-full p-2 border border-gray-300 rounded-md"
+                  value={selectedSheet || ''}
+                  onChange={e => setSelectedSheet(e.target.value)}
+                >
+                  {excelData?.workbook.SheetNames.map(sheetName => (
+                    <option key={sheetName} value={sheetName}>
+                      {sheetName}
+                    </option>
+                  ))}
+                </select>
+                
+                {/* シートプレビューを追加 */}
+                {selectedSheet && (
+                  <div className="mt-4">
+                    <h3 className="text-sm font-medium text-gray-700 mb-2">シートプレビュー: <span className="text-gray-500">{selectedSheet}</span></h3>
+                    <div className="border rounded overflow-auto" style={{ maxHeight: '300px' }}>
+                      <SheetPreview
+                        workbook={excelData.workbook}
+                        sheetName={selectedSheet}
+                        onSelectCell={(row, col) => {
+                          console.log(`セル選択: ${row}, ${col}`);
+                        }}
+                      />
                     </div>
                   </div>
-                
-                  <div className="space-y-4">
-                    {rules.map(rule => (
-                      <div 
-                        key={rule.id}
-                        className={`p-4 border rounded-md cursor-pointer ${
-                          isBatchProcessing
-                            ? selectedRuleIds.includes(rule.id)
-                              ? 'border-blue-500 bg-blue-50'
-                              : 'border-gray-200 hover:border-blue-300'
-                            : selectedRuleId === rule.id 
-                              ? 'border-blue-500 bg-blue-50' 
-                              : 'border-gray-200 hover:border-blue-300'
-                        }`}
-                        onClick={() => handleSelectRule(rule.id, isBatchProcessing)}
-                      >
-                        <div className="flex justify-between">
-                          <div>
-                            <h3 className="font-medium text-gray-900">{rule.name}</h3>
-                            <p className="text-sm text-gray-600 mt-1">{rule.description}</p>
-                          </div>
-                          {isBatchProcessing ? (
-                            <div className="flex items-center justify-center">
-                              <input
-                                type="checkbox"
-                                checked={selectedRuleIds.includes(rule.id)}
-                                onChange={() => handleSelectRule(rule.id, true)}
-                                onClick={(e) => e.stopPropagation()}
-                                className="h-5 w-5 text-blue-600 focus:ring-blue-500"
-                              />
-                            </div>
-                          ) : (
-                            selectedRuleId === rule.id && (
-                              <div className="flex items-center justify-center w-6 h-6 bg-blue-500 rounded-full">
-                                <Check className="h-4 w-4 text-white" />
-                              </div>
-                            )
-                          )}
-                        </div>
-                        <div className="flex items-center mt-3 text-xs text-gray-500">
-                          <span className="mr-3">シート数: {rule.sheetRules.length}</span>
-                          <span>フィールド数: {rule.sheetRules.reduce((sum, sheet) => sum + sheet.mappingRules.length, 0)}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              
-              <div className="flex justify-between mt-6">
-                <button
-                  className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
-                  onClick={handleReset}
-                >
-                  戻る
-                </button>
-                {isBatchProcessing ? (
-                  // 一括実行ボタン
-                  <button
-                    className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-green-300"
-                    onClick={() => setProcessingStep('process')}
-                    disabled={selectedRuleIds.length === 0 || !selectedSheet}
-                  >
-                    {selectedRuleIds.length}件のルールを一括実行
-                  </button>
-                ) : (
-                  // 単一実行ボタン
-                  <button
-                    className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300"
-                    onClick={() => setProcessingStep('process')}
-                    disabled={!selectedRuleId || !selectedSheet}
-                  >
-                    次へ
-                  </button>
                 )}
               </div>
+            )}
+            
+            {rules.length === 0 ? (
+              <div className="text-center py-8 bg-gray-50 rounded-md">
+                <Settings className="h-10 w-10 text-gray-400 mx-auto mb-2" />
+                <p className="text-gray-600 mb-4">ルールが作成されていません</p>
+                <button
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
+                  onClick={() => {
+                    // ルール管理画面への遷移処理
+                  }}
+                >
+                  ルールを作成
+                </button>
+              </div>
+            ) : (
+              <div>
+                {/* バッチ処理モード切り替え */}
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-lg font-medium">ルール一覧</h3>
+                  <div className="flex items-center">
+                    <label className="flex items-center text-sm">
+                      <input
+                        type="checkbox"
+                        className="mr-2"
+                        checked={isBatchProcessing}
+                        onChange={(e) => {
+                          setIsBatchProcessing(e.target.checked);
+                          // バッチモードをオフにしたらフォルダ選択解除
+                          if (!e.target.checked) {
+                            setSelectedFolderId(null);
+                          }
+                        }}
+                      />
+                      複数ルールを選択
+                    </label>
+                  </div>
+                </div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+                  {/* フォルダリスト（左側） */}
+                  <div className="md:col-span-2 border rounded-md p-4">
+                    <div className="space-y-2">
+                      <div className="flex justify-between items-center mb-2">
+                        <h3 className="text-sm font-semibold text-gray-600">フォルダ</h3>
+                      </div>
+                      
+                      {/* ローディング表示 */}
+                      {isFoldersLoading && (
+                        <div className="text-center py-2 text-sm text-gray-500">
+                          読み込み中...
+                        </div>
+                      )}
+                      
+                      {/* 未分類フォルダ（常に表示） */}
+                      <div className="space-y-0.5">
+                        <div 
+                          className={`flex items-center py-1 px-2 rounded-md cursor-pointer ${
+                            selectedFolderId === null && selectedRuleIds.length > 0 ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-100'
+                          }`}
+                          onClick={() => handleSelectFolder(null)}
+                        >
+                          <Folder size={16} className="mr-2 text-gray-400" />
+                          <span className="flex-1">未分類</span>
+                          <span className="text-xs text-gray-500 bg-gray-100 rounded-full px-2 py-0.5 mr-2">
+                            {folderRuleCounts['uncategorized'] || 0}
+                          </span>
+                          <button 
+                            className="p-1 text-gray-400 hover:text-blue-600"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              // ルール管理画面へ遷移（未分類を表示）
+                              navigateToRules();
+                            }}
+                            title="ルール管理"
+                          >
+                            <Settings size={14} />
+                          </button>
+                        </div>
+                      </div>
+                      
+                      {/* フォルダ一覧 */}
+                      <div className="space-y-1">
+                        {folders.map(folder => (
+                          <div key={folder.id} className="space-y-0.5">
+                            <div 
+                              className={`flex items-center py-1 px-2 rounded-md cursor-pointer ${
+                                selectedFolderId === folder.id ? 'bg-blue-50 text-blue-700' : 'hover:bg-gray-100'
+                              }`}
+                              onClick={() => handleSelectFolder(folder.id)}
+                            >
+                              <Folder size={16} className="mr-2" style={{ color: folder.color }} />
+                              <div className="flex-1">
+                                <div className="font-medium">{folder.name}</div>
+                                {folder.description && (
+                                  <div className="text-xs text-gray-500 truncate">{folder.description}</div>
+                                )}
+                              </div>
+                              <span className="text-xs text-gray-500 bg-gray-100 rounded-full px-2 py-0.5 mr-2">
+                                {folderRuleCounts[folder.id] || 0}
+                              </span>
+                              <button 
+                                className="p-1 text-gray-400 hover:text-blue-600"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  // ルール管理画面へ遷移（該当フォルダを表示）
+                                  navigateToRulesWithFolder(folder.id);
+                                }}
+                                title="ルール管理"
+                              >
+                                <Settings size={14} />
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                  
+                  {/* ルール一覧（右側） */}
+                  <div className="md:col-span-3 space-y-4">
+                    {selectedFolderId !== null ? (
+                      // フォルダが選択されている場合、そのフォルダ内のルールを表示
+                      <>
+                        <div className="bg-blue-50 border border-blue-200 rounded-md p-3 mb-2">
+                          <p className="text-sm text-blue-700">
+                            <Folder size={16} className="inline mr-1" style={{ color: folders.find(f => f.id === selectedFolderId)?.color }} />
+                            <span className="font-medium">{folders.find(f => f.id === selectedFolderId)?.name || '未分類'}</span> フォルダの
+                            <span className="font-medium">{selectedRuleIds.length}個</span>のルールを適用します
+                            {folderRules[selectedFolderId || 'uncategorized']?.length > selectedRuleIds.length && (
+                              <span className="text-xs ml-1">（{folderRules[selectedFolderId || 'uncategorized']?.length - selectedRuleIds.length}個除外）</span>
+                            )}
+                          </p>
+                        </div>
+                        {(selectedFolderId === null ? folderRules.uncategorized : folderRules[selectedFolderId])?.map(rule => (
+                          <div 
+                            key={rule.id}
+                            className={`p-4 border rounded-md ${
+                              selectedRuleIds.includes(rule.id)
+                                ? 'border-blue-300 bg-blue-50' 
+                                : 'border-gray-200 bg-gray-50'
+                            }`}
+                          >
+                            <div className="flex justify-between">
+                              <div className="flex-1">
+                                <h3 className="font-medium text-gray-900">{rule.name}</h3>
+                                <p className="text-sm text-gray-600 mt-1">{rule.description}</p>
+                              </div>
+                              <div className="flex items-center justify-center ml-4">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedRuleIds.includes(rule.id)}
+                                  onChange={() => toggleFolderRuleSelection(rule.id)}
+                                  className="h-5 w-5 text-blue-600 focus:ring-blue-500"
+                                />
+                              </div>
+                            </div>
+                            <div className="flex items-center mt-3 text-xs text-gray-500">
+                              <span className="mr-3">シート数: {rule.sheetRules.length}</span>
+                              <span>フィールド数: {rule.sheetRules.reduce((sum, sheet) => sum + sheet.mappingRules.length, 0)}</span>
+                            </div>
+                          </div>
+                        ))}
+                      </>
+                    ) : (
+                      // 通常のルール一覧表示
+                      rules.map(rule => (
+                        <div 
+                          key={rule.id}
+                          className={`p-4 border rounded-md cursor-pointer ${
+                            isBatchProcessing
+                              ? selectedRuleIds.includes(rule.id)
+                                ? 'border-blue-500 bg-blue-50'
+                                : 'border-gray-200 hover:border-blue-300'
+                              : selectedRuleId === rule.id 
+                                ? 'border-blue-500 bg-blue-50' 
+                                : 'border-gray-200 hover:border-blue-300'
+                          }`}
+                          onClick={() => handleSelectRule(rule.id, isBatchProcessing)}
+                        >
+                          <div className="flex justify-between">
+                            <div>
+                              <h3 className="font-medium text-gray-900">{rule.name}</h3>
+                              <p className="text-sm text-gray-600 mt-1">{rule.description}</p>
+                            </div>
+                            {isBatchProcessing ? (
+                              <div className="flex items-center justify-center">
+                                <input
+                                  type="checkbox"
+                                  checked={selectedRuleIds.includes(rule.id)}
+                                  onChange={() => handleSelectRule(rule.id, true)}
+                                  onClick={(e) => e.stopPropagation()}
+                                  className="h-5 w-5 text-blue-600 focus:ring-blue-500"
+                                />
+                              </div>
+                            ) : (
+                              selectedRuleId === rule.id && (
+                                <div className="flex items-center justify-center w-6 h-6 bg-blue-500 rounded-full">
+                                  <Check className="h-4 w-4 text-white" />
+                                </div>
+                              )
+                            )}
+                          </div>
+                          <div className="flex items-center mt-3 text-xs text-gray-500">
+                            <span className="mr-3">シート数: {rule.sheetRules.length}</span>
+                            <span>フィールド数: {rule.sheetRules.reduce((sum, sheet) => sum + sheet.mappingRules.length, 0)}</span>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            <div className="flex justify-between mt-6">
+              <button
+                className="px-4 py-2 border border-gray-300 text-gray-700 rounded-md hover:bg-gray-50"
+                onClick={handleReset}
+              >
+                戻る
+              </button>
+              {isBatchProcessing ? (
+                // 一括実行ボタン
+                <button
+                  className="px-4 py-2 bg-green-600 text-white rounded-md hover:bg-green-700 disabled:bg-green-300"
+                  onClick={() => setProcessingStep('process')}
+                  disabled={selectedRuleIds.length === 0 || !selectedSheet}
+                >
+                  {selectedRuleIds.length}件のルールを一括実行
+                </button>
+              ) : (
+                // 単一実行ボタン
+                <button
+                  className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700 disabled:bg-blue-300"
+                  onClick={() => setProcessingStep('process')}
+                  disabled={!selectedRuleId || !selectedSheet}
+                >
+                  次へ
+                </button>
+              )}
             </div>
           </div>
         );

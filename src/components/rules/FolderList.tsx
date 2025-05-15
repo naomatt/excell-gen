@@ -402,7 +402,7 @@ const FolderList: React.FC<FolderListProps> = ({
       <div className="space-y-0.5">
         <div className="flex items-center">
           <button 
-            className="p-1 text-gray-400 hover:text-gray-600" 
+            className="p-1 text-gray-400 hover:text-gray-600 flex-shrink-0" 
             onClick={toggleUncategorized}
           >
             {isUncategorizedExpanded ? (
@@ -421,9 +421,9 @@ const FolderList: React.FC<FolderListProps> = ({
             onDragLeave={handleDragLeave}
             onDrop={(e) => handleDrop(e, null)}
           >
-            <Folder size={16} className="mr-2 text-gray-400" />
-            <span className="flex-1">未分類</span>
-            <span className="text-xs text-gray-500 bg-gray-100 rounded-full px-2 py-0.5">
+            <Folder size={16} className="mr-2 flex-shrink-0 text-gray-400" />
+            <span className="flex-1 mr-2 overflow-hidden" style={{ wordBreak: 'break-word' }}>未分類</span>
+            <span className="text-xs text-gray-500 bg-gray-100 rounded-full px-2 py-0.5 flex-shrink-0">
               {folderRuleCounts['uncategorized'] || 0}
             </span>
           </div>
@@ -448,7 +448,7 @@ const FolderList: React.FC<FolderListProps> = ({
                   onDragEnd={handleRuleDragEnd}
                 >
                   <FileText size={14} className="flex-shrink-0 mr-2 text-gray-400" />
-                  <span className="truncate flex-1 mr-1">{rule.name}</span>
+                  <span className="flex-1 mr-1 overflow-hidden" style={{ wordBreak: 'break-word' }}>{rule.name}</span>
                 </div>
               ))
             ) : (
@@ -466,7 +466,7 @@ const FolderList: React.FC<FolderListProps> = ({
           <div key={folder.id} className="space-y-0.5">
             <div className="flex items-center">
               <button 
-                className="p-1 text-gray-400 hover:text-gray-600" 
+                className="p-1 text-gray-400 hover:text-gray-600 flex-shrink-0" 
                 onClick={() => toggleFolder(folder.id)}
               >
                 {expandedFolders[folder.id] ? (
@@ -533,19 +533,19 @@ const FolderList: React.FC<FolderListProps> = ({
                     onDragLeave={handleDragLeave}
                     onDrop={(e) => handleDrop(e, folder.id)}
                   >
-                    <Folder size={16} className="mr-2" style={{ color: folder.color }} />
-                    <div className="flex-1">
+                    <Folder size={16} className="mr-2 flex-shrink-0" style={{ color: folder.color }} />
+                    <div className="flex-1 min-w-0 mr-2 overflow-hidden" style={{ wordBreak: 'break-word' }}>
                       <div className="font-medium">{folder.name}</div>
                       {folder.description && (
-                        <div className="text-xs text-gray-500 truncate">{folder.description}</div>
+                        <div className="text-xs text-gray-500">{folder.description}</div>
                       )}
                     </div>
-                    <span className="text-xs text-gray-500 bg-gray-100 rounded-full px-2 py-0.5">
+                    <span className="text-xs text-gray-500 bg-gray-100 rounded-full px-2 py-0.5 flex-shrink-0">
                       {folderRuleCounts[folder.id] || 0}
                     </span>
                   </div>
                   
-                  <div className="flex ml-1">
+                  <div className="flex ml-1 flex-shrink-0">
                     <button 
                       className="p-1 text-gray-400 hover:text-blue-600"
                       onClick={(e) => {
@@ -593,7 +593,7 @@ const FolderList: React.FC<FolderListProps> = ({
                       onDragEnd={handleRuleDragEnd}
                     >
                       <FileText size={14} className="flex-shrink-0 mr-2 text-gray-400" />
-                      <span className="truncate flex-1 mr-1">{rule.name}</span>
+                      <span className="flex-1 mr-1 overflow-hidden" style={{ wordBreak: 'break-word' }}>{rule.name}</span>
                     </div>
                   ))
                 ) : (
